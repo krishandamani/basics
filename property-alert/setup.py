@@ -1,0 +1,24 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="property-alert",
+    version="0.1.0",
+    packages=find_packages(),
+    install_requires=[
+        "requests>=2.31.0",
+        "beautifulsoup4>=4.12.0",
+        "playwright>=1.40.0",
+        "APScheduler>=3.10.4",
+        "click>=8.1.7",
+        "pyyaml>=6.0.1",
+        "python-dotenv>=1.0.0",
+        "tabulate>=0.9.0",
+        "lxml>=4.9.3",
+    ],
+    entry_points={
+        "console_scripts": [
+            "property-alert=property_alert.cli:cli",
+        ],
+    },
+    python_requires=">=3.11",
+)

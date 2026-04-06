@@ -1,0 +1,71 @@
+# Property Alert — Example Configuration
+# Copy this to ~/.config/property-alert/config.yaml and edit to your needs.
+# Run `property-alert init` to create it interactively instead.
+
+notification:
+  email:
+    from: "you@gmail.com"
+    to: "you@gmail.com"
+    # Generate at: Google Account → Security → 2-Step Verification → App Passwords
+    password: "xxxx-xxxx-xxxx-xxxx"
+  # Send digest emails at these times each day (24h format)
+  digest_times: ["09:00", "18:00"]
+
+# How often (in hours) to scrape all sources for new listings
+schedule_hours: 6
+
+searches:
+  # ── Example 1: Renting a 2-bed flat in London ──────────────────────────────
+  - id: london-rent
+    label: "2-bed flat to rent in London"
+    type: rent                        # rent | sale
+    sources:
+      - rightmove
+      - zoopla
+      - onthemarket
+      - openrent
+    location: "London"
+    radius_miles: 2
+    min_price: 1500                   # monthly PCM
+    max_price: 2500
+    min_bedrooms: 2
+    max_bedrooms: 3
+    property_types:                   # leave empty [] to accept any type
+      - flat
+      - terraced
+    keywords_require: []              # listing description must contain ALL of these
+    keywords_exclude:
+      - studio
+      - bedsit
+    enrichment:
+      commute_to: "Bank Station, London"   # used for commute time calculation
+      include_crime: true
+      include_epc: true
+      include_schools: true
+
+  # ── Example 2: Buying a house outside London ──────────────────────────────
+  - id: surrey-buy
+    label: "3-bed house to buy in Surrey"
+    type: sale
+    sources:
+      - rightmove
+      - zoopla
+      - onthemarket
+    location: "Guildford, Surrey"
+    radius_miles: 5
+    min_price: 400000
+    max_price: 600000
+    min_bedrooms: 3
+    max_bedrooms: 5
+    property_types:
+      - detached
+      - semi-detached
+    keywords_require: []
+    keywords_exclude:
+      - auction
+      - shared ownership
+    enrichment:
+      commute_to: "London Waterloo"
+      include_crime: true
+      include_epc: true
+      include_schools: true
