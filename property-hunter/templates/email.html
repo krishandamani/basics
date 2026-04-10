@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Property Alert</title>
+  <style>
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      background: #f4f4f5;
+      color: #111;
+    }
+    .wrapper { max-width: 620px; margin: 24px auto; padding: 0 12px; }
+    .header {
+      background: #1a1a2e;
+      border-radius: 10px 10px 0 0;
+      padding: 24px 28px;
+      color: #fff;
+    }
+    .header h1 { margin: 0 0 4px; font-size: 22px; }
+    .header p  { margin: 0; color: #aaa; font-size: 14px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      margin: 16px 0;
+      overflow: hidden;
+    }
+    .card-img {
+      width: 100%; height: 200px;
+      object-fit: cover; display: block;
+    }
+    .card-img-placeholder {
+      width: 100%; height: 120px;
+      background: #f3f4f6;
+      display: flex; align-items: center; justify-content: center;
+      color: #9ca3af; font-size: 32px;
+    }
+    .card-body { padding: 18px 20px; }
+    .source-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+    .badge-rightmove   { background: #e8f5e9; color: #2e7d32; }
+    .badge-zoopla      { background: #e3f2fd; color: #1565c0; }
+    .badge-onthemarket { background: #fff3e0; color: #e65100; }
+    .badge-openrent    { background: #f3e5f5; color: #6a1b9a; }
+    .price {
+      font-size: 24px; font-weight: 700;
+      color: #1a1a2e; margin: 0 0 6px;
+    }
+    .price .freq { font-size: 14px; font-weight: 400; color: #6b7280; }
+    .title { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+    .meta  { font-size: 14px; color: #4b5563; margin: 4px 0; }
+    .tags  { margin: 12px 0; }
+    .tag {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      margin: 3px 4px 3px 0;
+      background: #f3f4f6;
+      color: #374151;
+    }
+    .tag.green  { background: #d1fae5; color: #065f46; }
+    .tag.amber  { background: #fef3c7; color: #92400e; }
+    .tag.red    { background: #fee2e2; color: #991b1b; }
+    .btn {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 10px 20px;
+      background: #1a1a2e;
+      color: #fff !important;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .footer {
+      text-align: center;
+      color: #9ca3af;
+      font-size: 12px;
+      padding: 20px 0 10px;
+    }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🏠 {{ count }} new propert{{ 'y' if count == 1 else 'ies' }} found</h1>
+    <p>{{ date }} &nbsp;·&nbsp; Property Hunter alert</p>
+  </div>
+
+  <!-- Property cards -->
+  {% for prop, search in matches %}
+  <div class="card">
+
+    {% if prop.image_url %}
+      <img class="card-img" src="{{ prop.image_url }}" alt="Property photo" />
+    {% else %}
+      <div class="card-img-placeholder">🏠</div>
+    {% endif %}
+
+    <div class="card-body">
+
+      <!-- Source badge -->
+      <span class="source-badge badge-{{ prop.source }}">{{ prop.source }}</span>
+      {% if search.name %}
+        <span style="font-size:12px;color:#9ca3af;margin-left:6px;">{{ search.name }}</span>
+      {% endif %}
+
+      <!-- Price -->
+      <div class="price">
+        £{{ "{:,}".format(prop.price) }}
+        <span class="freq">{% if prop.listing_type == 'rent' %}/month{% endif %}</span>
+      </div>
+
+      <!-- Title & address -->
+      <div class="title">{{ prop.title or prop.address }}</div>
+      <div class="meta">📍 {{ prop.address }}</div>
+
+      <!-- Beds & type -->
+      <div class="meta">
+        🛏 {{ prop.bedrooms }} bedroom{{ 's' if prop.bedrooms != 1 else '' }}
+        {% if prop.property_type %}&nbsp;·&nbsp; {{ prop.property_type }}{% endif %}
+      </div>
+
+      <!-- Enrichment tags -->
+      <div class="tags">
+        {% if prop.epc_rating %}
+          <span class="tag {% if prop.epc_rating in ['A','B','C'] %}green{% elif prop.epc_rating in ['D'] %}amber{% else %}red{% endif %}">
+            ⚡ EPC {{ prop.epc_rating }}
+          </span>
+        {% endif %}
+        {% if prop.crime_rate %}
+          <span class="tag {% if prop.crime_rate == 'Low' %}green{% elif prop.crime_rate == 'Medium' %}amber{% else %}red{% endif %}">
+            🔒 Crime: {{ prop.crime_rate }}
+          </span>
+        {% endif %}
+        {% if prop.commute_minutes %}
+          <span class="tag">🚇 {{ prop.commute_minutes }} min commute</span>
+        {% endif %}
+        {% if prop.school_rating %}
+          <span class="tag {% if prop.school_rating == 'Outstanding' %}green{% elif prop.school_rating == 'Good' %}green{% else %}amber{% endif %}">
+            🏫 {{ prop.school_rating }}
+          </span>
+        {% endif %}
+      </div>
+
+      <a class="btn" href="{{ prop.url }}" target="_blank">
+        View on {{ prop.source | title }} →
+      </a>
+
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="footer">
+    You're receiving this because Property Hunter is running on your computer.<br>
+    To stop alerts, press Ctrl+C in the terminal where it's running.
+  </div>
+
+</div>
+</body>
+</html>

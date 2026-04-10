@@ -1,0 +1,35 @@
+# Property Hunter — Search Configuration
+# Edit this file to change your search criteria.
+# Run the setup wizard instead if you prefer guided setup: python setup_wizard.py
+
+schedule:
+  interval_hours: 6          # How often to check for new listings (default: every 6 hours)
+
+searches:
+  - id: london-rent-example
+    name: "London 2-3 bed rental"
+    listing_type: rent        # rent | sale | both
+
+    # Paste your search URLs from each site below.
+    # Open the site, do your search as normal, then copy the URL from your browser.
+    # Leave as "" to skip that site.
+    rightmove_url: ""
+    zoopla_url: ""
+    onthemarket_url: ""
+    openrent_url: ""
+
+    # Price filters (applied on top of the site's own filters)
+    min_price: 1500           # Monthly rent (£) or sale price (£)
+    max_price: 2500
+
+    # Bedroom filters
+    min_bedrooms: 2
+    max_bedrooms: 3
+
+    # Property type filter (leave empty [] to accept all types)
+    # Examples: ["flat", "house", "terraced", "detached", "semi-detached"]
+    property_types: []
+
+    # Keyword filters
+    keywords_required: []     # e.g. ["garden", "parking"] — ALL must appear
+    keywords_excluded: ["studio", "bedsit", "room only"]
