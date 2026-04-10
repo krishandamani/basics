@@ -1,0 +1,15 @@
+# Property Hunter — configuration
+# This file is committed to your GitHub repo.
+# DO NOT put your Gmail App Password here — add it as a GitHub Secret instead.
+# (GitHub repo → Settings → Secrets and variables → Actions → New repository secret)
+# Secret name: GMAIL_APP_PASSWORD
+
+email:
+  address: t.guiner2@googlemail.com
+  app_password: ""   # leave blank — the tool reads GMAIL_APP_PASSWORD env var automatically
+
+schedule:
+  interval_hours: 6  # how often GitHub Actions checks for new properties
+
+# Add your searches below, or run:  python main.py add-search
+searches: []

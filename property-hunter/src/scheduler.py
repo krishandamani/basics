@@ -10,7 +10,7 @@ from .database import init_db, is_new, mark_sent, save_property
 from .enricher import enrich
 from .matcher import filter_properties
 from .models import Search
-from .notifier import send_digest
+from .notifier import send_digest, send_health_alert
 from . import scrapers
 
 
@@ -26,17 +26,31 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
     for search in searches:
         print(f"\n» Search: {search.name}")
 
+        # Track which sources were enabled but returned nothing
+        zero_sources = []
+
         raw: list = []
-        if search.rightmove_url:
-            raw += scrapers.rightmove.scrape(search)
-        if search.zoopla_url:
-            raw += scrapers.zoopla.scrape(search)
-        if search.onthemarket_url:
-            raw += scrapers.onthemarket.scrape(search)
-        if search.openrent_url:
-            raw += scrapers.openrent.scrape(search)
+        for source_name, url_attr, scraper_fn in [
+            ("Rightmove",    "rightmove_url",    scrapers.rightmove.scrape),
+            ("Zoopla",       "zoopla_url",       scrapers.zoopla.scrape),
+            ("OnTheMarket",  "onthemarket_url",  scrapers.onthemarket.scrape),
+            ("OpenRent",     "openrent_url",     scrapers.openrent.scrape),
+        ]:
+            if getattr(search, url_attr):
+                results = scraper_fn(search)
+                if len(results) == 0:
+                    zero_sources.append(source_name)
+                raw += results
 
         print(f"  Total scraped: {len(raw)}")
+
+        # Health alert: if every enabled source returned zero, something is probably broken
+        if zero_sources and len(zero_sources) == sum(
+            1 for attr in ["rightmove_url", "zoopla_url", "onthemarket_url", "openrent_url"]
+            if getattr(search, attr)
+        ):
+            print(f"  ⚠ All sources returned 0 — sending health alert")
+            send_health_alert(search.name, zero_sources, config)
 
         matched = filter_properties(raw, search)
         print(f"  Match criteria: {len(matched)}")
@@ -54,8 +68,8 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
 
     print()
     if all_new_matches:
-        print(f"  Sending digest with {len(all_new_matches)} new propert"
-              f"{'ies' if len(all_new_matches) != 1 else 'y'}…")
+        n = len(all_new_matches)
+        print(f"  Sending digest with {n} new propert{'ies' if n != 1 else 'y'}…")
         send_digest(all_new_matches, config)
     else:
         print("  No new matches — no email sent.")
@@ -74,7 +88,7 @@ def start(config: dict, searches: List[Search]) -> None:
     print(f"\nProperty Hunter started — checking every {interval_hours} hour(s).")
     print("Press Ctrl+C to stop.\n")
 
-    # Run immediately on startup so you don't wait hours for the first result
+    # Run immediately on startup so you don't wait for the first result
     run_cycle(config, searches)
 
     schedule.every(interval_hours).hours.do(run_cycle, config=config, searches=searches)
