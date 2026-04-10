@@ -240,9 +240,9 @@ def main():
 
     searches = build_searches(config)
     if not searches:
-        print("No searches configured yet.")
-        print("Run:  python main.py add-search")
-        sys.exit(1)
+        print("No searches configured yet — nothing to do.")
+        print("Add one with:  python main.py add-search")
+        sys.exit(0)  # exit 0 = success; no searches is not an error
 
     if command == "once":
         from src.scheduler import run_cycle

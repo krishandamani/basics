@@ -10,6 +10,8 @@ jobs:
   hunt:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # suppress Node.js 20 deprecation warning
 
     steps:
       - name: Check out code
