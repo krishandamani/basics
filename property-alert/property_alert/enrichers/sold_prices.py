@@ -18,6 +18,7 @@ def enrich_sold_prices(prop: Property) -> None:
 
     query = f"""
     PREFIX lrppi: <http://landregistry.data.gov.uk/def/ppi/>
+    PREFIX lrcommon: <http://landregistry.data.gov.uk/def/common/>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
     SELECT (AVG(?amount) AS ?avg) WHERE {{
       ?trans lrppi:pricePaid ?amount ;

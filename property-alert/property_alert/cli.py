@@ -38,14 +38,31 @@ def init():
 
     click.echo("\n=== Property Alert Setup ===\n")
 
-    email_from = click.prompt("Your Gmail address (sender)")
-    email_to = click.prompt("Send alerts to (email)", default=email_from)
-    click.echo(
-        "\nYou need a Gmail App Password (not your regular password).\n"
-        "Generate one at: Google Account → Security → 2-Step Verification → App Passwords\n"
-    )
-    email_password = click.prompt("Gmail App Password", hide_input=True)
+    click.echo("Step 1 of 3 — Email")
+    click.echo("─" * 40)
+    click.echo("Alerts will be SENT from a Gmail address and RECEIVED at your inbox.")
+    click.echo("If you don't have a Gmail to use as a sender, create a free one at gmail.com\n")
+    email_from = click.prompt("Gmail address to send alerts FROM")
+    email_to = click.prompt("Email address to RECEIVE alerts", default="houselistings1234@proton.me")
 
+    click.echo(
+        "\nStep 2 of 3 — Gmail App Password"
+        "\n─" + "─" * 39 +
+        "\nGoogle requires a special App Password for automated tools."
+        "\nDo NOT use your regular Gmail password here."
+        "\n\nHow to create one (takes ~2 minutes):"
+        "\n  1. Go to: myaccount.google.com/apppasswords"
+        "\n  2. Sign in to the Gmail you just entered"
+        "\n  3. Under 'App name', type: Property Alert"
+        "\n  4. Click 'Create' — Google will show a 16-character code"
+        "\n  5. Copy and paste it below (spaces don't matter)\n"
+    )
+    email_password = click.prompt("Gmail App Password (16 characters)", hide_input=True)
+
+    click.echo(
+        "\nStep 3 of 3 — Search schedule"
+        "\n─" + "─" * 39
+    )
     schedule_hours = click.prompt("How often to scrape (hours)", default=6, type=int)
     digest_times_raw = click.prompt("Send digest emails at (comma-separated HH:MM)", default="09:00,18:00")
     digest_times = [t.strip() for t in digest_times_raw.split(",")]
