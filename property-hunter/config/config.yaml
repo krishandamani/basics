@@ -1,29 +1,167 @@
 # Property Hunter — configuration
-# This file is committed to your GitHub repo.
-# DO NOT put your Gmail App Password here — add it as a GitHub Secret instead.
-# (GitHub repo → Settings → Secrets and variables → Actions → New repository secret)
-# Secret name: GMAIL_APP_PASSWORD
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub Secrets to add (repo → Settings → Secrets → Actions):
+#   GMAIL_APP_PASSWORD   — your Gmail App Password
+#   APIFY_API_KEY        — from apify.com → Settings → Integrations → API tokens
+#
+# Railway env vars to add (service → Variables):
+#   GMAIL_APP_PASSWORD
+#   APIFY_API_KEY
 
 email:
   address: t.guiner2@googlemail.com
-  app_password: ""   # leave blank — the tool reads GMAIL_APP_PASSWORD env var automatically
+  app_password: ""   # leave blank — reads GMAIL_APP_PASSWORD env var automatically
 
 schedule:
-  interval_hours: 6  # how often GitHub Actions checks for new properties
+  interval_hours: 6
 
-# ── Your searches ──────────────────────────────────────────────────────────────
-# Edit the example below, or run:  python main.py add-search
-# Fields: name, listing_type (rent/sale/both), location, min_price, max_price,
-#         min_bedrooms, max_bedrooms, keywords_excluded
+# ── Searches — 9 commuter towns, for sale and for rent ───────────────────────
 searches:
-  - id: search-1
-    name: My property search
+
+  # ── FOR SALE (£900k–£1.3M, 3+ beds) ────────────────────────────────────────
+
+  - id: hitchin-sale
+    name: "Hitchin — For Sale"
+    listing_type: sale
+    location: Hitchin
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: st-albans-sale
+    name: "St Albans — For Sale"
+    listing_type: sale
+    location: St Albans
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: welwyn-sale
+    name: "Welwyn Garden City — For Sale"
+    listing_type: sale
+    location: Welwyn Garden City
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: cuffley-sale
+    name: "Cuffley — For Sale"
+    listing_type: sale
+    location: Cuffley
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: amersham-sale
+    name: "Amersham — For Sale"
+    listing_type: sale
+    location: Amersham
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: northwood-sale
+    name: "Northwood — For Sale"
+    listing_type: sale
+    location: Northwood
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: pinner-sale
+    name: "Pinner — For Sale"
+    listing_type: sale
+    location: Pinner
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: bushey-sale
+    name: "Bushey — For Sale"
+    listing_type: sale
+    location: Bushey
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  - id: croxley-sale
+    name: "Croxley Green — For Sale"
+    listing_type: sale
+    location: Croxley Green
+    min_price: 900000
+    max_price: 1300000
+    min_bedrooms: 3
+
+  # ── FOR RENT (£1,800–£2,600/month, 3+ beds) ─────────────────────────────────
+
+  - id: hitchin-rent
+    name: "Hitchin — For Rent"
     listing_type: rent
-    location: London        # plain English — town, area, or postcode (e.g. E1, SW3, Hackney)
-    min_price: 1500         # £ per month for rent
-    max_price: 2500
-    min_bedrooms: 2
-    max_bedrooms: 3
-    keywords_excluded:
-      - studio
-      - bedsit
+    location: Hitchin
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: st-albans-rent
+    name: "St Albans — For Rent"
+    listing_type: rent
+    location: St Albans
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: welwyn-rent
+    name: "Welwyn Garden City — For Rent"
+    listing_type: rent
+    location: Welwyn Garden City
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: cuffley-rent
+    name: "Cuffley — For Rent"
+    listing_type: rent
+    location: Cuffley
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: amersham-rent
+    name: "Amersham — For Rent"
+    listing_type: rent
+    location: Amersham
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: northwood-rent
+    name: "Northwood — For Rent"
+    listing_type: rent
+    location: Northwood
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: pinner-rent
+    name: "Pinner — For Rent"
+    listing_type: rent
+    location: Pinner
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: bushey-rent
+    name: "Bushey — For Rent"
+    listing_type: rent
+    location: Bushey
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3
+
+  - id: croxley-rent
+    name: "Croxley Green — For Rent"
+    listing_type: rent
+    location: Croxley Green
+    min_price: 1800
+    max_price: 2600
+    min_bedrooms: 3

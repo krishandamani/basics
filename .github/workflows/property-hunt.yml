@@ -32,7 +32,6 @@ jobs:
 
       - name: Run property search
         env:
-          # Store your Gmail App Password as a GitHub Secret named GMAIL_APP_PASSWORD
-          # GitHub repo → Settings → Secrets and variables → Actions → New repository secret
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          APIFY_API_KEY: ${{ secrets.APIFY_API_KEY }}
         run: python property-hunter/main.py once
