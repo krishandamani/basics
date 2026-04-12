@@ -7,6 +7,7 @@ Then open http://localhost:5000 in your browser.
 """
 
 import json
+import os
 import sys
 import threading
 from datetime import datetime, timedelta
@@ -258,4 +259,5 @@ if __name__ == "__main__":
     print(f"  →  http://localhost:5000")
     print(f"  DB: {DB_PATH}")
     print()
-    app.run(debug=False, host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
