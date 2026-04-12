@@ -112,8 +112,8 @@ def send_health_alert(search_name: str, zero_sources: List[str], config: dict) -
            for your search "<strong>{search_name}</strong>" on {now}.</p>
         <p>This usually means one of:</p>
         <ul>
-          <li>The site is temporarily blocking automated access — it should recover within a few hours</li>
-          <li>Your search URL has expired or changed — re-run <code>python main.py add-search</code> to update it</li>
+          <li>The property sites are temporarily blocking automated access from cloud servers — this is normal and should recover within a few hours</li>
+          <li>Your search criteria in <code>config.yaml</code> need updating — check the <code>location</code> field is a valid UK town, city, or postcode</li>
         </ul>
         <p style="color:#6b7280;font-size:13px;">
           Property Hunter will keep running and alert you normally when results return.
