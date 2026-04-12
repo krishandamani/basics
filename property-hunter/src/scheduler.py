@@ -30,13 +30,15 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
         zero_sources = []
 
         raw: list = []
-        for source_name, url_attr, scraper_fn in [
+        scraper_defs = [
             ("Rightmove",    "rightmove_url",    scrapers.rightmove.scrape),
             ("Zoopla",       "zoopla_url",       scrapers.zoopla.scrape),
             ("OnTheMarket",  "onthemarket_url",  scrapers.onthemarket.scrape),
             ("OpenRent",     "openrent_url",     scrapers.openrent.scrape),
-        ]:
-            if getattr(search, url_attr):
+        ]
+        for source_name, url_attr, scraper_fn in scraper_defs:
+            # Run if a specific URL is set OR if a location is provided (auto-build URL)
+            if getattr(search, url_attr) or search.location:
                 results = scraper_fn(search)
                 if len(results) == 0:
                     zero_sources.append(source_name)
@@ -45,10 +47,11 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
         print(f"  Total scraped: {len(raw)}")
 
         # Health alert: if every enabled source returned zero, something is probably broken
-        if zero_sources and len(zero_sources) == sum(
-            1 for attr in ["rightmove_url", "zoopla_url", "onthemarket_url", "openrent_url"]
-            if getattr(search, attr)
-        ):
+        enabled_count = sum(
+            1 for _, attr, _ in scraper_defs
+            if getattr(search, attr) or search.location
+        )
+        if zero_sources and len(zero_sources) == enabled_count:
             print(f"  ⚠ All sources returned 0 — sending health alert")
             send_health_alert(search.name, zero_sources, config)
 

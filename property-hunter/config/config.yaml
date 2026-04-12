@@ -11,5 +11,19 @@ email:
 schedule:
   interval_hours: 6  # how often GitHub Actions checks for new properties
 
-# Add your searches below, or run:  python main.py add-search
-searches: []
+# ── Your searches ──────────────────────────────────────────────────────────────
+# Edit the example below, or run:  python main.py add-search
+# Fields: name, listing_type (rent/sale/both), location, min_price, max_price,
+#         min_bedrooms, max_bedrooms, keywords_excluded
+searches:
+  - id: search-1
+    name: My property search
+    listing_type: rent
+    location: London        # plain English — town, area, or postcode (e.g. E1, SW3, Hackney)
+    min_price: 1500         # £ per month for rent
+    max_price: 2500
+    min_bedrooms: 2
+    max_bedrooms: 3
+    keywords_excluded:
+      - studio
+      - bedsit

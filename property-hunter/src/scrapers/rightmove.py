@@ -1,25 +1,80 @@
-"""Rightmove scraper — uses the rightmove-webscraper pip package (277 ⭐)."""
+"""Rightmove scraper — uses the rightmove-webscraper pip package (277 ⭐).
+
+Builds the search URL automatically from search.location and criteria.
+No need for the user to paste any URL.
+"""
 
 import re
-from typing import List
+from typing import List, Optional
+from urllib.parse import quote
+
+import requests
 
 from ..models import Property, Search
 
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-GB,en;q=0.9",
+}
+
+
+def _location_id(location: str) -> Optional[str]:
+    """Look up Rightmove's internal location identifier from a plain place name."""
+    try:
+        r = requests.get(
+            "https://www.rightmove.co.uk/typeAhead/uknostreetphoto",
+            params={"query": location, "limit": 5},
+            headers=_HEADERS,
+            timeout=10,
+        )
+        results = r.json().get("typeAheadLocations", [])
+        if results:
+            return results[0]["locationIdentifier"]  # e.g. "REGION^92829"
+    except Exception:
+        pass
+    return None
+
+
+def _build_url(search: Search) -> Optional[str]:
+    """Construct a Rightmove search URL from plain criteria."""
+    loc_id = _location_id(search.location)
+    if not loc_id:
+        print(f"  [Rightmove] Could not find location: '{search.location}'")
+        return None
+
+    listing_type = search.listing_type if search.listing_type != "both" else "rent"
+    path = "property-to-rent" if listing_type == "rent" else "property-for-sale"
+
+    params = {
+        "locationIdentifier": loc_id,
+        "sortType": "6",          # newest first
+    }
+    if search.min_bedrooms:
+        params["minBedrooms"] = str(search.min_bedrooms)
+    if search.max_bedrooms:
+        params["maxBedrooms"] = str(search.max_bedrooms)
+    if search.min_price:
+        params["minPrice"] = str(search.min_price)
+    if search.max_price:
+        params["maxPrice"] = str(search.max_price)
+
+    query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
+    return f"https://www.rightmove.co.uk/{path}/find.html?{query}"
+
 
 def scrape(search: Search) -> List[Property]:
-    if not search.rightmove_url:
+    # Use explicit URL if provided, otherwise build from criteria
+    url = search.rightmove_url or (_build_url(search) if search.location else None)
+    if not url:
         return []
 
     try:
         from rightmove_webscraper import RightmoveData
 
-        url = search.rightmove_url
-        # Sort by newest first so we catch fresh listings
-        if "sortType" not in url:
-            url += ("&" if "?" in url else "?") + "sortType=6"
-
-        listing_type = "rent" if "to-rent" in url or "property-to-rent" in url else "sale"
-
+        listing_type = "rent" if "to-rent" in url else "sale"
         rm = RightmoveData(url)
         df = rm.get_results
 
@@ -28,12 +83,9 @@ def scrape(search: Search) -> List[Property]:
             prop_url = str(row.get("url", ""))
             if not prop_url:
                 continue
-
-            # Make URL absolute
             if prop_url.startswith("/"):
                 prop_url = "https://www.rightmove.co.uk" + prop_url
 
-            # Extract numeric ID from URL like /properties/12345678
             id_match = re.search(r"/properties/(\d+)", prop_url)
             prop_id = (
                 f"rightmove_{id_match.group(1)}"
@@ -44,10 +96,7 @@ def scrape(search: Search) -> List[Property]:
             try:
                 price = int(
                     str(row.get("price", 0))
-                    .replace(",", "")
-                    .replace("£", "")
-                    .replace("pcm", "")
-                    .strip()
+                    .replace(",", "").replace("£", "").replace("pcm", "").strip()
                 )
             except (ValueError, TypeError):
                 price = 0

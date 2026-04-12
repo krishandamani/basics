@@ -33,10 +33,7 @@ class Search:
     id: str
     name: str
     listing_type: str                      # sale | rent | both
-    rightmove_url: Optional[str] = None
-    zoopla_url: Optional[str] = None
-    onthemarket_url: Optional[str] = None
-    openrent_url: Optional[str] = None
+    location: str = ""                     # e.g. "London", "Manchester", "E1" — plain English
     min_price: Optional[int] = None
     max_price: Optional[int] = None
     min_bedrooms: Optional[int] = None
@@ -44,3 +41,8 @@ class Search:
     property_types: List[str] = field(default_factory=list)
     keywords_required: List[str] = field(default_factory=list)
     keywords_excluded: List[str] = field(default_factory=list)
+    # Optional: explicit URLs override location-based search (advanced use only)
+    rightmove_url: Optional[str] = None
+    zoopla_url: Optional[str] = None
+    onthemarket_url: Optional[str] = None
+    openrent_url: Optional[str] = None

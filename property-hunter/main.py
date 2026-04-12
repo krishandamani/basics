@@ -73,6 +73,7 @@ def build_searches(config: dict):
                 id=s["id"],
                 name=s.get("name", s["id"]),
                 listing_type=s.get("listing_type", "both"),
+                location=s.get("location", ""),
                 rightmove_url=s.get("rightmove_url") or None,
                 zoopla_url=s.get("zoopla_url") or None,
                 onthemarket_url=s.get("onthemarket_url") or None,
@@ -158,8 +159,7 @@ def cmd_add_search() -> None:
     searches = config.get("searches") or []
     search_num = len(searches) + 1
 
-    print("\n── Add a new search ──────────────────────────────────")
-    print("Paste your search URL from each site (or press Enter to skip).\n")
+    print("\n── Add a new search ──────────────────────────────────\n")
 
     def ask(prompt, default=""):
         val = input(f"  {prompt}" + (f" [{default}]" if default else "") + ": ").strip()
@@ -171,15 +171,12 @@ def cmd_add_search() -> None:
     while listing_type not in ("rent", "sale", "both"):
         listing_type = ask("Rent, sale, or both?", "rent")
 
-    rm_url  = ask("Rightmove URL")
-    zp_url  = ask("Zoopla URL")
-    otm_url = ask("OnTheMarket URL")
-    or_url  = ask("OpenRent URL") if listing_type in ("rent", "both") else ""
+    location = ask("Location (e.g. London, Manchester, E1, SW3)")
 
-    min_price = ask("Min price £")
-    max_price = ask("Max price £")
-    min_beds  = ask("Min bedrooms")
-    max_beds  = ask("Max bedrooms")
+    min_price = ask("Min price £  (press Enter to skip)")
+    max_price = ask("Max price £  (press Enter to skip)")
+    min_beds  = ask("Min bedrooms (press Enter to skip)")
+    max_beds  = ask("Max bedrooms (press Enter to skip)")
 
     excl_raw = ask("Exclude keywords (comma-separated)", "studio, bedsit")
     excluded = [k.strip() for k in excl_raw.split(",") if k.strip()]
@@ -188,10 +185,7 @@ def cmd_add_search() -> None:
         "id": f"search-{search_num}",
         "name": name,
         "listing_type": listing_type,
-        "rightmove_url": rm_url or "",
-        "zoopla_url": zp_url or "",
-        "onthemarket_url": otm_url or "",
-        "openrent_url": or_url or "",
+        "location": location,
         "property_types": [],
         "keywords_required": [],
         "keywords_excluded": excluded,
