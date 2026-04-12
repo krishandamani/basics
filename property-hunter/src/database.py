@@ -92,3 +92,95 @@ def recent_properties(limit: int = 20) -> list:
         return conn.execute(
             "SELECT * FROM properties ORDER BY first_seen DESC LIMIT ?", (limit,)
         ).fetchall()
+
+
+# ── Web UI extras ─────────────────────────────────────────────────────────────
+
+def init_web_tables() -> None:
+    """Create user_marks table for favourites/hidden (web UI only)."""
+    with _conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_marks (
+                property_id TEXT PRIMARY KEY,
+                favourited  INTEGER DEFAULT 0,
+                hidden      INTEGER DEFAULT 0
+            )
+        """)
+
+
+def get_web_properties(
+    listing_type: str = "",
+    min_price: int = None,
+    max_price: int = None,
+    min_bedrooms: int = None,
+    source: str = "",
+    favourites_only: bool = False,
+    limit: int = 300,
+) -> list:
+    """Return properties joined with user marks, for the web UI."""
+    conditions = ["COALESCE(u.hidden, 0) = 0"]
+    params: list = []
+
+    if favourites_only:
+        conditions.append("COALESCE(u.favourited, 0) = 1")
+    if listing_type:
+        conditions.append("p.listing_type = ?")
+        params.append(listing_type)
+    if min_price is not None:
+        conditions.append("p.price >= ?")
+        params.append(min_price)
+    if max_price is not None:
+        conditions.append("p.price <= ?")
+        params.append(max_price)
+    if min_bedrooms is not None:
+        conditions.append("p.bedrooms >= ?")
+        params.append(min_bedrooms)
+    if source:
+        conditions.append("p.source = ?")
+        params.append(source)
+
+    where = "WHERE " + " AND ".join(conditions)
+    params.append(limit)
+
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            f"""
+            SELECT p.*,
+                   COALESCE(u.favourited, 0) AS favourited,
+                   COALESCE(u.hidden, 0)     AS hidden
+            FROM properties p
+            LEFT JOIN user_marks u ON p.id = u.property_id
+            {where}
+            ORDER BY p.first_seen DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+
+def toggle_favourite(property_id: str) -> bool:
+    """Toggle a property's favourite status. Returns the new state."""
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_marks (property_id) VALUES (?)", (property_id,)
+        )
+        conn.execute(
+            "UPDATE user_marks SET favourited = 1 - favourited WHERE property_id = ?",
+            (property_id,),
+        )
+        row = conn.execute(
+            "SELECT favourited FROM user_marks WHERE property_id = ?", (property_id,)
+        ).fetchone()
+        return bool(row[0]) if row else False
+
+
+def hide_property(property_id: str) -> None:
+    """Mark a property as hidden so it won't appear in the feed."""
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_marks (property_id) VALUES (?)", (property_id,)
+        )
+        conn.execute(
+            "UPDATE user_marks SET hidden = 1 WHERE property_id = ?", (property_id,)
+        )

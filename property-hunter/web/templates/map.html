@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Map — Property Hunter{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-base font-semibold text-slate-700">
+    {{ points | length }} propert{{ 'y' if points | length == 1 else 'ies' }} on map
+  </h1>
+  <a href="/" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">← All properties</a>
+</div>
+
+<!-- Source legend -->
+<div class="flex flex-wrap gap-3 mb-4">
+  {% for name, color in [('Rightmove','#00703c'),('Zoopla','#7c3aed'),('OnTheMarket','#c2410c'),('OpenRent','#1d4ed8')] %}
+  <div class="flex items-center gap-1.5 text-xs text-slate-600">
+    <span class="w-3 h-3 rounded-full inline-block" style="background:{{ color }}"></span>
+    {{ name }}
+  </div>
+  {% endfor %}
+</div>
+
+<div id="map"
+     class="w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200"
+     style="height: calc(100vh - 220px); min-height: 400px;"></div>
+
+{% if not points %}
+<div class="absolute inset-x-0 flex justify-center" style="margin-top:-200px">
+  <div class="bg-white/95 backdrop-blur rounded-xl px-6 py-4 shadow text-slate-500 text-sm">
+    No properties with postcode data yet — run a search first.
+  </div>
+</div>
+{% endif %}
+
+<script>
+const POINTS = {{ points | tojson }};
+
+const SOURCE_COLORS = {
+  rightmove:   '#00703c',
+  zoopla:      '#7c3aed',
+  onthemarket: '#c2410c',
+  openrent:    '#1d4ed8',
+};
+
+const map = L.map('map');
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+if (POINTS.length === 0) {
+  map.setView([51.505, -0.09], 10);
+} else {
+  const markers = L.featureGroup();
+
+  POINTS.forEach(p => {
+    const color = SOURCE_COLORS[p.source] || '#64748b';
+    const price = p.price
+      ? `£${p.price.toLocaleString()}${p.listing_type === 'rent' ? '/mo' : ''}`
+      : 'Price TBC';
+
+    const marker = L.circleMarker([p.lat, p.lng], {
+      radius: 9,
+      fillColor: color,
+      color: 'white',
+      weight: 2,
+      fillOpacity: 0.92,
+    });
+
+    marker.bindPopup(`
+      <div style="width:220px; font-family:system-ui,sans-serif">
+        ${p.image_url
+          ? `<img src="${p.image_url}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:10px">`
+          : ''}
+        <div style="font-size:18px;font-weight:700;color:#0f172a">${price}</div>
+        <div style="font-size:12px;color:#64748b;margin:3px 0 8px">${p.address || ''}</div>
+        ${p.bedrooms ? `<span style="background:#f1f5f9;border-radius:999px;padding:2px 10px;font-size:11px;color:#475569">${p.bedrooms} bed</span>` : ''}
+        <a href="${p.url}" target="_blank"
+           style="display:block;margin-top:12px;background:#4f46e5;color:white;text-align:center;
+                  padding:8px;border-radius:10px;font-size:13px;font-weight:500;text-decoration:none">
+          View listing →
+        </a>
+      </div>
+    `, { maxWidth: 240 });
+
+    marker.addTo(markers);
+  });
+
+  markers.addTo(map);
+  map.fitBounds(markers.getBounds(), { padding: [40, 40], maxZoom: 14 });
+}
+</script>
+
+{% endblock %}

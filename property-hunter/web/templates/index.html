@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}
+  {% if properties %}{{ properties | length }} properties{% else %}Property Hunter{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<!-- Natural language search -->
+<form method="get" action="/" x-data="{ busy: false }" @submit="busy = true" class="mb-5">
+  <div class="relative">
+    <input
+      name="q"
+      value="{{ filters.q }}"
+      placeholder="Describe what you want… e.g. 2 bed flat in East London under £1,800/month"
+      class="w-full pl-5 pr-32 py-4 rounded-2xl border border-slate-200 bg-white shadow-sm
+             text-slate-900 placeholder-slate-400 text-sm
+             focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+      autocomplete="off"
+    />
+    <button
+      type="submit"
+      :class="busy ? 'opacity-60 cursor-not-allowed' : 'hover:bg-indigo-700'"
+      class="absolute right-2 top-2 bg-indigo-600 text-white text-sm font-medium
+             px-5 py-2.5 rounded-xl transition-colors"
+    >
+      <span x-show="!busy">Search</span>
+      <span x-show="busy" x-cloak>…</span>
+    </button>
+  </div>
+
+  {% if nl_active %}
+  <p class="text-xs text-indigo-600 mt-2 ml-1">
+    ✨ AI-parsed from your description —
+    <a href="/" class="underline hover:text-indigo-800">clear</a>
+  </p>
+  {% endif %}
+
+  <!-- Filter strip -->
+  <div class="flex flex-wrap gap-2 mt-3">
+    <select name="listing_type" onchange="this.form.submit()"
+      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700
+             focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <option value="">All types</option>
+      <option value="rent"  {% if filters.listing_type == 'rent'  %}selected{% endif %}>Rent</option>
+      <option value="sale"  {% if filters.listing_type == 'sale'  %}selected{% endif %}>For sale</option>
+    </select>
+
+    <input name="min_price" value="{{ filters.min_price }}" placeholder="Min £"
+      type="number" min="0"
+      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 w-24
+             focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+
+    <input name="max_price" value="{{ filters.max_price }}" placeholder="Max £"
+      type="number" min="0"
+      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 w-24
+             focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+
+    <select name="min_beds" onchange="this.form.submit()"
+      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700
+             focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <option value="">Any beds</option>
+      {% for n in [1, 2, 3, 4, 5] %}
+      <option value="{{ n }}" {% if filters.min_beds == n|string %}selected{% endif %}>{{ n }}+ beds</option>
+      {% endfor %}
+    </select>
+
+    <select name="source" onchange="this.form.submit()"
+      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700
+             focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <option value="">All sites</option>
+      <option value="rightmove"    {% if filters.source == 'rightmove'    %}selected{% endif %}>Rightmove</option>
+      <option value="zoopla"       {% if filters.source == 'zoopla'       %}selected{% endif %}>Zoopla</option>
+      <option value="onthemarket"  {% if filters.source == 'onthemarket'  %}selected{% endif %}>OnTheMarket</option>
+      <option value="openrent"     {% if filters.source == 'openrent'     %}selected{% endif %}>OpenRent</option>
+    </select>
+
+    {% if filters.q or filters.listing_type or filters.min_price or filters.max_price or filters.min_beds or filters.source %}
+    <a href="/"
+       class="text-sm text-slate-500 hover:text-slate-700 px-3 py-1.5 border border-slate-200
+              rounded-lg bg-white hover:bg-slate-50 transition-colors">✕ Clear all</a>
+    {% endif %}
+
+    <!-- Apply button for price inputs -->
+    <button type="submit"
+      class="text-sm text-indigo-600 hover:text-indigo-800 px-3 py-1.5 border border-indigo-200
+             rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors">
+      Apply
+    </button>
+  </div>
+</form>
+
+<!-- Count -->
+<div class="flex items-center justify-between mb-4">
+  <p class="text-sm text-slate-500">
+    <span class="font-semibold text-slate-800">{{ properties | length }}</span>
+    propert{{ 'y' if properties | length == 1 else 'ies' }}
+    {% if filters.q %} matching "<em>{{ filters.q }}</em>"{% endif %}
+  </p>
+  {% if properties %}
+  <a href="/map" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">View on map →</a>
+  {% endif %}
+</div>
+
+<!-- Empty state -->
+{% if not properties %}
+<div class="text-center py-24">
+  <div class="text-7xl mb-5 opacity-50">🏡</div>
+  <h2 class="text-xl font-semibold text-slate-700 mb-2">No properties yet</h2>
+  <p class="text-slate-500 mb-8 max-w-xs mx-auto">
+    Click <strong>Search now</strong> in the top-right to fetch listings from
+    Rightmove, Zoopla, OnTheMarket, and OpenRent.
+  </p>
+</div>
+
+{% else %}
+<!-- Property grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+  {% for p in properties %}
+  <div class="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-200"
+       id="card-{{ p.id }}">
+
+    <!-- Photo -->
+    <div class="relative bg-slate-100" style="aspect-ratio: 16/10; overflow: hidden;">
+      {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="{{ p.title }}"
+           class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+           loading="lazy">
+      {% else %}
+      <div class="w-full h-full flex items-center justify-center opacity-20 text-6xl select-none">🏡</div>
+      {% endif %}
+
+      <!-- NEW badge -->
+      {% if p.is_new %}
+      <span class="absolute top-3 left-3 bg-emerald-500 text-white text-xs font-bold
+                   px-2.5 py-1 rounded-full shadow-sm">NEW</span>
+      {% endif %}
+
+      <!-- Source badge -->
+      <span class="absolute top-3 right-3 text-xs font-semibold
+                   px-2.5 py-1 rounded-full src-{{ p.source }} shadow-sm">
+        {{ p.source | title }}
+      </span>
+    </div>
+
+    <!-- Card body -->
+    <div class="p-4">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <p class="text-2xl font-bold text-slate-900 leading-tight">
+            {% if p.price %}
+              £{{ '{:,}'.format(p.price) }}{% if p.listing_type == 'rent' %}<span class="text-sm font-normal text-slate-400">/mo</span>{% endif %}
+            {% else %}
+              <span class="text-slate-400 text-base">Price on request</span>
+            {% endif %}
+          </p>
+          <p class="text-sm text-slate-500 mt-0.5 truncate">{{ p.address or p.title or "—" }}</p>
+        </div>
+
+        <!-- Favourite heart -->
+        <button
+          onclick="toggleFavourite(this, '{{ p.id }}')"
+          data-fav="{{ 'true' if p.favourited else 'false' }}"
+          title="{{ 'Remove from saved' if p.favourited else 'Save property' }}"
+          class="text-xl shrink-0 mt-0.5 transition-transform duration-150 hover:scale-125 active:scale-90"
+        >{{ '❤️' if p.favourited else '🤍' }}</button>
+      </div>
+
+      <!-- Attribute badges -->
+      <div class="flex flex-wrap gap-1.5 mt-3">
+        {% if p.bedrooms %}
+        <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.bedrooms }} bed
+        </span>
+        {% endif %}
+        {% if p.property_type %}
+        <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.property_type | title }}
+        </span>
+        {% endif %}
+        {% if p.epc_rating %}
+        <span class="bg-green-50 text-green-700 border border-green-200 text-xs px-2.5 py-0.5 rounded-full">
+          EPC {{ p.epc_rating }}
+        </span>
+        {% endif %}
+        {% if p.crime_rate %}
+        <span class="bg-blue-50 text-blue-700 border border-blue-200 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.crime_rate }} crime
+        </span>
+        {% endif %}
+        {% if p.commute_minutes %}
+        <span class="bg-purple-50 text-purple-700 border border-purple-200 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.commute_minutes }} min commute
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex gap-2 mt-4">
+        <a href="{{ p.url }}" target="_blank" rel="noopener"
+           class="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
+                  text-white rounded-xl py-2.5 text-sm font-medium transition-colors">
+          View listing →
+        </a>
+        <button
+          onclick="hideCard('{{ p.id }}')"
+          title="Hide this property"
+          class="px-3 py-2.5 text-slate-400 hover:text-slate-700 border border-slate-200
+                 hover:border-slate-300 rounded-xl hover:bg-slate-50 text-sm transition-colors">
+          ✕
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function toggleFavourite(btn, id) {
+  fetch(`/api/toggle-favourite/${id}`, {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      btn.dataset.fav = d.favourited;
+      btn.textContent = d.favourited ? '❤️' : '🤍';
+    });
+}
+
+function hideCard(id) {
+  const card = document.getElementById(`card-${id}`);
+  fetch(`/api/hide/${id}`, {method: 'POST'}).then(() => {
+    card.style.transition = 'opacity 0.25s, transform 0.25s';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.96)';
+    setTimeout(() => card.remove(), 260);
+  });
+}
+</script>
+
+{% endblock %}

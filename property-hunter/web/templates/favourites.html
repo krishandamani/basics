@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Saved — Property Hunter{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center gap-3 mb-6">
+  <h1 class="text-xl font-semibold text-slate-800">Saved properties</h1>
+  {% if properties %}
+  <span class="text-sm text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full">
+    {{ properties | length }}
+  </span>
+  {% endif %}
+</div>
+
+{% if not properties %}
+<div class="text-center py-24">
+  <div class="text-7xl mb-5 opacity-40">❤️</div>
+  <h2 class="text-xl font-semibold text-slate-700 mb-2">Nothing saved yet</h2>
+  <p class="text-slate-500 mb-8 max-w-xs mx-auto">
+    Click the 🤍 on any property listing to save it here.
+  </p>
+  <a href="/"
+     class="inline-block bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3
+            rounded-xl font-medium transition-colors">
+    Browse properties
+  </a>
+</div>
+
+{% else %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+  {% for p in properties %}
+  <div class="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-200"
+       id="card-{{ p.id }}">
+
+    <div class="relative bg-slate-100" style="aspect-ratio: 16/10; overflow: hidden;">
+      {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="{{ p.title }}"
+           class="w-full h-full object-cover" loading="lazy">
+      {% else %}
+      <div class="w-full h-full flex items-center justify-center opacity-20 text-6xl select-none">🏡</div>
+      {% endif %}
+
+      {% if p.is_new %}
+      <span class="absolute top-3 left-3 bg-emerald-500 text-white text-xs font-bold
+                   px-2.5 py-1 rounded-full shadow-sm">NEW</span>
+      {% endif %}
+
+      <span class="absolute top-3 right-3 text-xs font-semibold
+                   px-2.5 py-1 rounded-full src-{{ p.source }} shadow-sm">
+        {{ p.source | title }}
+      </span>
+    </div>
+
+    <div class="p-4">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <p class="text-2xl font-bold text-slate-900 leading-tight">
+            {% if p.price %}
+              £{{ '{:,}'.format(p.price) }}{% if p.listing_type == 'rent' %}<span class="text-sm font-normal text-slate-400">/mo</span>{% endif %}
+            {% else %}
+              <span class="text-slate-400 text-base">Price on request</span>
+            {% endif %}
+          </p>
+          <p class="text-sm text-slate-500 mt-0.5 truncate">{{ p.address or p.title or "—" }}</p>
+        </div>
+
+        <button
+          onclick="unfavourite(this, '{{ p.id }}')"
+          title="Remove from saved"
+          class="text-xl shrink-0 mt-0.5 transition-transform duration-150 hover:scale-125 active:scale-90"
+        >❤️</button>
+      </div>
+
+      <div class="flex flex-wrap gap-1.5 mt-3">
+        {% if p.bedrooms %}
+        <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.bedrooms }} bed
+        </span>
+        {% endif %}
+        {% if p.property_type %}
+        <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.property_type | title }}
+        </span>
+        {% endif %}
+        {% if p.epc_rating %}
+        <span class="bg-green-50 text-green-700 border border-green-200 text-xs px-2.5 py-0.5 rounded-full">
+          EPC {{ p.epc_rating }}
+        </span>
+        {% endif %}
+        {% if p.crime_rate %}
+        <span class="bg-blue-50 text-blue-700 border border-blue-200 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.crime_rate }} crime
+        </span>
+        {% endif %}
+        {% if p.commute_minutes %}
+        <span class="bg-purple-50 text-purple-700 border border-purple-200 text-xs px-2.5 py-0.5 rounded-full">
+          {{ p.commute_minutes }} min commute
+        </span>
+        {% endif %}
+      </div>
+
+      <a href="{{ p.url }}" target="_blank" rel="noopener"
+         class="block mt-4 text-center bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
+                text-white rounded-xl py-2.5 text-sm font-medium transition-colors">
+        View listing →
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+function unfavourite(btn, id) {
+  fetch(`/api/toggle-favourite/${id}`, {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.favourited) {
+        const card = document.getElementById(`card-${id}`);
+        card.style.transition = 'opacity 0.25s, transform 0.25s';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.96)';
+        setTimeout(() => card.remove(), 260);
+      }
+    });
+}
+</script>
+
+{% endif %}
+{% endblock %}
