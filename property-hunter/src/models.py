@@ -25,6 +25,7 @@ class Property:
     school_rating: Optional[str] = None    # Outstanding | Good | Requires Improvement | Inadequate
     avg_sold_price: Optional[int] = None   # avg £/sqft or avg price in postcode
     commute_minutes: Optional[int] = None
+    previous_price: Optional[int] = None  # set when a price drop is detected
     first_seen: datetime = field(default_factory=datetime.now)
 
 
@@ -46,3 +47,5 @@ class Search:
     zoopla_url: Optional[str] = None
     onthemarket_url: Optional[str] = None
     openrent_url: Optional[str] = None
+    savills_url: Optional[str] = None
+    knightfrank_url: Optional[str] = None

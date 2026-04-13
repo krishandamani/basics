@@ -27,12 +27,13 @@ app.secret_key = "property-hunter-local"
 
 # ── Background search state ───────────────────────────────────────────────────
 
-_search_state: dict = {"running": False, "last_ran": None, "error": None}
+_search_state: dict = {"running": False, "last_ran": None, "error": None, "started_at": None}
 
 
 def _run_search_background() -> None:
     _search_state["running"] = True
     _search_state["error"] = None
+    _search_state["started_at"] = datetime.now().isoformat()
     try:
         import yaml
         from main import build_searches, _find_config
@@ -61,6 +62,7 @@ def _run_search_background() -> None:
         _search_state["error"] = str(exc)
     finally:
         _search_state["running"] = False
+        _search_state["started_at"] = None
 
 
 # ── Natural language parsing ──────────────────────────────────────────────────
@@ -255,7 +257,14 @@ def api_run_search():
 
 @app.route("/api/search-status")
 def api_search_status():
-    return jsonify(_search_state)
+    state = dict(_search_state)
+    if state.get("running") and state.get("started_at"):
+        try:
+            elapsed_sec = int((datetime.now() - datetime.fromisoformat(state["started_at"])).total_seconds())
+            state["elapsed_seconds"] = elapsed_sec
+        except Exception:
+            state["elapsed_seconds"] = 0
+    return jsonify(state)
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────

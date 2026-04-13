@@ -12,8 +12,11 @@
     .src-zoopla      { background: #7c3aed; color: #fff; }
     .src-onthemarket { background: #c2410c; color: #fff; }
     .src-openrent    { background: #1d4ed8; color: #fff; }
+    .src-savills     { background: #000000; color: #fff; }
+    .src-knightfrank { background: #8b0000; color: #fff; }
     .type-sale { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
     .type-rent { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .price-drop { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
   </style>
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-900"
@@ -47,17 +50,25 @@
       <span class="text-xs text-red-500 hidden sm:block" title="{{ search_state.error }}">⚠ Error</span>
       {% endif %}
 
-      <!-- Searching indicator -->
+      <!-- Searching indicator with live elapsed time -->
       <span x-show="searchRunning" x-cloak
+        x-data="{ elapsed: 0, _t: null }"
+        x-init="_t = setInterval(() => elapsed++, 1000)"
+        title="Fetching listings from Rightmove, Zoopla, OnTheMarket via Apify — typically takes 3–8 minutes"
         class="text-xs font-medium text-amber-600 flex items-center gap-1.5 shrink-0">
         <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
         </svg>
-        <span class="hidden sm:inline">Searching…</span>
+        <span class="hidden sm:inline">
+          Searching…<span x-show="elapsed >= 30"
+            x-text="' ' + Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's'"></span>
+        </span>
+        <span class="sm:hidden" x-show="elapsed >= 30"
+          x-text="Math.floor(elapsed/60) + 'm'"></span>
       </span>
 
-      <!-- Search now button — always show text -->
+      <!-- Search now button -->
       <button
         x-show="!searchRunning"
         @click="
@@ -72,8 +83,9 @@
                     location.reload();
                   }
                 });
-              }, 3000);
-            });
+              }, 5000);
+            })
+            .catch(() => { searchRunning = false; });
         "
         class="text-sm font-medium bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
                text-white px-3 sm:px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 shrink-0"

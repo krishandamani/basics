@@ -10,6 +10,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from .models import Property
 
@@ -69,6 +70,7 @@ def init_db() -> None:
                 listing_type    TEXT,
                 url             TEXT,
                 price           INTEGER,
+                previous_price  INTEGER,
                 bedrooms        INTEGER,
                 property_type   TEXT,
                 address         TEXT,
@@ -84,7 +86,11 @@ def init_db() -> None:
             )
         """)
         # Add columns that may be missing from older schemas (safe to run repeatedly)
-        for col, defn in [("nearest_school", "TEXT"), ("school_rating", "TEXT")]:
+        for col, defn in [
+            ("nearest_school", "TEXT"),
+            ("school_rating", "TEXT"),
+            ("previous_price", "INTEGER"),
+        ]:
             try:
                 _x(conn, f"ALTER TABLE properties ADD COLUMN {col} {defn}")
             except Exception:
@@ -126,11 +132,24 @@ def mark_sent(property_id: str, search_id: str) -> None:
             )
 
 
+def get_stored_price(property_id: str) -> Optional[int]:
+    """Return the current stored price for a property, or None if not in the DB."""
+    with _db() as conn:
+        row = _x(conn,
+            "SELECT price FROM properties WHERE id = ?",
+            (property_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return row["price"]
+
+
 def save_property(prop: Property) -> None:
     """Upsert a property into the database."""
     params = (
         prop.id, prop.source, prop.listing_type, prop.url,
-        prop.price, prop.bedrooms, prop.property_type, prop.address,
+        prop.price, prop.previous_price,
+        prop.bedrooms, prop.property_type, prop.address,
         prop.title, prop.postcode, prop.image_url,
         prop.epc_rating, prop.crime_rate, prop.commute_minutes,
         prop.nearest_school, prop.school_rating,
@@ -140,15 +159,17 @@ def save_property(prop: Property) -> None:
         if _USE_PG:
             _x(conn, """
                 INSERT INTO properties
-                    (id, source, listing_type, url, price, bedrooms, property_type,
-                     address, title, postcode, image_url, epc_rating, crime_rate,
-                     commute_minutes, nearest_school, school_rating, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    (id, source, listing_type, url, price, previous_price,
+                     bedrooms, property_type, address, title, postcode, image_url,
+                     epc_rating, crime_rate, commute_minutes,
+                     nearest_school, school_rating, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (id) DO UPDATE SET
                     source          = EXCLUDED.source,
                     listing_type    = EXCLUDED.listing_type,
                     url             = EXCLUDED.url,
                     price           = EXCLUDED.price,
+                    previous_price  = EXCLUDED.previous_price,
                     bedrooms        = EXCLUDED.bedrooms,
                     property_type   = EXCLUDED.property_type,
                     address         = EXCLUDED.address,
@@ -164,10 +185,11 @@ def save_property(prop: Property) -> None:
         else:
             _x(conn, """
                 INSERT OR REPLACE INTO properties
-                    (id, source, listing_type, url, price, bedrooms, property_type,
-                     address, title, postcode, image_url, epc_rating, crime_rate,
-                     commute_minutes, nearest_school, school_rating, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    (id, source, listing_type, url, price, previous_price,
+                     bedrooms, property_type, address, title, postcode, image_url,
+                     epc_rating, crime_rate, commute_minutes,
+                     nearest_school, school_rating, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, params)
 
 

@@ -1,8 +1,10 @@
-"""Send formatted HTML emails via Gmail SMTP."""
+"""Send formatted HTML emails via Gmail SMTP and push alerts via Telegram."""
 
 import os
 import smtplib
 import ssl
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -86,6 +88,106 @@ def send_digest(
 
     if _send(address, app_password, subject, html_body):
         print(f"[Email] ✓ Digest sent — {n} propert{'ies' if n != 1 else 'y'} to {address}")
+
+
+def _tg_credentials(config: dict) -> tuple[str, str]:
+    tg = config.get("telegram", {})
+    token = tg.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = tg.get("chat_id") or os.environ.get("TELEGRAM_CHAT_ID", "")
+    return token, chat_id
+
+
+def _tg_post(token: str, method: str, payload: dict) -> None:
+    data = urllib.parse.urlencode(payload).encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/{method}", data=data
+    )
+    urllib.request.urlopen(req, timeout=10)
+
+
+def _tg_send(token: str, chat_id: str, prop: Property, caption: str) -> None:
+    """Send photo with caption if available, fallback to text message."""
+    try:
+        if prop.image_url:
+            _tg_post(token, "sendPhoto", {
+                "chat_id": chat_id,
+                "photo": prop.image_url,
+                "caption": caption,
+                "parse_mode": "Markdown",
+            })
+            return
+    except Exception:
+        pass
+    try:
+        _tg_post(token, "sendMessage", {
+            "chat_id": chat_id,
+            "text": caption,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": "false",
+        })
+    except Exception as exc:
+        print(f"  [Telegram] Failed for {prop.id}: {exc}")
+
+
+def send_telegram_alert(matches: List[Tuple[Property, Search]], config: dict) -> None:
+    """Send a Telegram push notification for each new matched property."""
+    token, chat_id = _tg_credentials(config)
+    if not token or not chat_id:
+        return
+
+    sent = 0
+    for prop, search in matches:
+        price_str = f"£{prop.price:,}" if prop.price else "POA"
+        if prop.listing_type == "rent":
+            price_str += "/mo"
+
+        lines = [
+            f"🏡 *NEW — {search.name}*",
+            "",
+            f"*{price_str}*  {prop.address or prop.title or ''}",
+        ]
+        if prop.commute_minutes:
+            lines.append(f"🚂 {prop.commute_minutes} min to London")
+        if prop.school_rating:
+            lines.append(f"🎓 {prop.school_rating} school nearby")
+        lines += ["", prop.url]
+
+        _tg_send(token, chat_id, prop, "\n".join(lines))
+        sent += 1
+
+    if sent:
+        print(f"  [Telegram] {sent} new-listing alert(s) sent")
+
+
+def send_price_drop_alert(drops: list, config: dict) -> None:
+    """Send Telegram push notifications for price-dropped properties."""
+    token, chat_id = _tg_credentials(config)
+    if not token or not chat_id:
+        return
+
+    sent = 0
+    for prop, old_price, search in drops:
+        pct = round((old_price - prop.price) / old_price * 100)
+        cur = f"£{prop.price:,}" + ("/mo" if prop.listing_type == "rent" else "")
+        was = f"£{old_price:,}" + ("/mo" if prop.listing_type == "rent" else "")
+
+        lines = [
+            f"💰 *PRICE DROP — {search.name}*",
+            "",
+            f"*{cur}* ↓ was {was} (−{pct}%)",
+            prop.address or prop.title or "",
+        ]
+        if prop.commute_minutes:
+            lines.append(f"🚂 {prop.commute_minutes} min to London")
+        if prop.school_rating:
+            lines.append(f"🎓 {prop.school_rating} school nearby")
+        lines += ["", prop.url]
+
+        _tg_send(token, chat_id, prop, "\n".join(lines))
+        sent += 1
+
+    if sent:
+        print(f"  [Telegram] {sent} price-drop alert(s) sent")
 
 
 def send_health_alert(search_name: str, zero_sources: List[str], config: dict) -> None:

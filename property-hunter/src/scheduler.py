@@ -7,38 +7,46 @@ All scraper calls run in parallel (ThreadPoolExecutor) so a full cycle of
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 
 import schedule
 
-from .database import init_db, is_new, mark_sent, save_property
+from .database import get_stored_price, init_db, is_new, mark_sent, save_property
 from .enricher import enrich
 from .matcher import filter_properties
 from .models import Search
-from .notifier import send_digest, send_health_alert
+from .notifier import send_digest, send_health_alert, send_price_drop_alert, send_telegram_alert
 from . import scrapers
 
 _USE_APIFY = bool(os.environ.get("APIFY_API_KEY"))
 
-# Max parallel scraper threads. 12 handles 18 searches × 2-3 scrapers well;
-# Apify processes them on its own servers so we're mostly waiting on network.
+# Max parallel scraper threads. 12 handles 18 searches × 3-4 scrapers well.
 _MAX_WORKERS = int(os.environ.get("SCRAPER_WORKERS", 12))
+
+# Rate-limit health alerts: {search_id: datetime of last alert}
+_health_alert_sent: dict = {}
+_HEALTH_ALERT_MIN_INTERVAL = timedelta(hours=12)
 
 
 def _build_scraper_defs() -> list:
     if _USE_APIFY:
         from .scrapers import apify_scraper
         return [
-            ("Rightmove", "rightmove_url", apify_scraper.scrape_rightmove),
-            ("Zoopla",    "zoopla_url",    apify_scraper.scrape_zoopla),
-            ("OpenRent",  "openrent_url",  scrapers.openrent.scrape),
+            ("Rightmove",   "rightmove_url",   apify_scraper.scrape_rightmove),
+            ("Zoopla",      "zoopla_url",       apify_scraper.scrape_zoopla),
+            ("OnTheMarket", "onthemarket_url",  apify_scraper.scrape_onthemarket),
+            ("OpenRent",    "openrent_url",     scrapers.openrent.scrape),
+            ("Savills",     "savills_url",      scrapers.savills.scrape),
+            ("KnightFrank", "knightfrank_url",  scrapers.knightfrank.scrape),
         ]
     return [
         ("Rightmove",   "rightmove_url",   scrapers.rightmove.scrape),
         ("Zoopla",      "zoopla_url",      scrapers.zoopla.scrape),
         ("OnTheMarket", "onthemarket_url", scrapers.onthemarket.scrape),
         ("OpenRent",    "openrent_url",    scrapers.openrent.scrape),
+        ("Savills",     "savills_url",     scrapers.savills.scrape),
+        ("KnightFrank", "knightfrank_url", scrapers.knightfrank.scrape),
     ]
 
 
@@ -97,6 +105,7 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
 
     # ── Phase 2: filter, deduplicate, enrich, save ────────────────────────────
     all_new_matches: list = []
+    price_drops: list = []   # (prop, old_price, search)
     search_by_id = {s.id: s for s in searches}
 
     for search in searches:
@@ -115,32 +124,53 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
         print(f"  Scraped: {len(raw)}  |  zero sources: {zero_sources or 'none'}")
 
         # Health alert when every enabled source returned nothing
+        # Rate-limited to once per 12h per search to avoid inbox spam
         if zero_sources and len(zero_sources) == enabled_count:
-            print(f"  ⚠ All sources returned 0 — sending health alert")
-            send_health_alert(search.name, zero_sources, config)
+            last_sent = _health_alert_sent.get(search.id)
+            if not last_sent or (datetime.now() - last_sent) > _HEALTH_ALERT_MIN_INTERVAL:
+                print(f"  ⚠ All sources returned 0 — sending health alert")
+                send_health_alert(search.name, zero_sources, config)
+                _health_alert_sent[search.id] = datetime.now()
+            else:
+                mins = int((datetime.now() - last_sent).total_seconds() / 60)
+                print(f"  ⚠ All sources returned 0 — health alert suppressed (sent {mins}m ago)")
 
         matched = filter_properties(raw, search)
         print(f"  Matched criteria: {len(matched)}")
 
         new_this_search = []
         for prop in matched:
+            stored_price = get_stored_price(prop.id)
             if is_new(prop.id, search.id):
                 prop = enrich(prop)
                 save_property(prop)
                 mark_sent(prop.id, search.id)
                 new_this_search.append((prop, search))
+            elif stored_price and prop.price and prop.price < stored_price:
+                # Price drop on a property we've already seen — alert immediately
+                prop = enrich(prop)
+                prop.previous_price = stored_price
+                save_property(prop)
+                price_drops.append((prop, stored_price, search))
 
-        print(f"  New (not seen before): {len(new_this_search)}")
+        print(f"  New (not seen before): {len(new_this_search)}"
+              + (f"  |  Price drops: {len([d for d in price_drops if d[2].id == search.id])}" if price_drops else ""))
         all_new_matches.extend(new_this_search)
 
-    # ── Phase 3: send digest ──────────────────────────────────────────────────
+    # ── Phase 3: send alerts ──────────────────────────────────────────────────
     print()
     if all_new_matches:
         n = len(all_new_matches)
-        print(f"  Sending digest with {n} new propert{'ies' if n != 1 else 'y'}…")
+        print(f"  Sending digest + Telegram for {n} new propert{'ies' if n != 1 else 'y'}…")
         send_digest(all_new_matches, config)
+        send_telegram_alert(all_new_matches, config)
     else:
         print("  No new matches — no email sent.")
+
+    if price_drops:
+        n = len(price_drops)
+        print(f"  Sending price drop alerts for {n} propert{'ies' if n != 1 else 'y'}…")
+        send_price_drop_alert(price_drops, config)
 
     next_run = schedule.next_run()
     if next_run:

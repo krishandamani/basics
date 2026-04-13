@@ -12,6 +12,18 @@ email:
   address: t.guiner2@googlemail.com
   app_password: ""   # leave blank — reads GMAIL_APP_PASSWORD env var automatically
 
+# ── Telegram instant alerts (optional but recommended — works on mobile) ──────
+# Setup (2 min):
+#   1. Message @BotFather on Telegram → /newbot → copy the token
+#   2. Message your new bot once, then open:
+#      https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+#      Copy the "id" from chat.id in the result
+#   3. Add as Railway env vars: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+#      (or set bot_token / chat_id below for local testing)
+telegram:
+  bot_token: ""   # reads TELEGRAM_BOT_TOKEN env var if blank
+  chat_id: ""     # reads TELEGRAM_CHAT_ID env var if blank
+
 schedule:
   interval_hours: 6
 

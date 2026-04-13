@@ -75,6 +75,12 @@
             </span>
           </div>
           <p class="text-sm text-slate-500 mt-0.5 truncate">{{ p.address or p.title or "—" }}</p>
+          {% if p.previous_price %}
+          <span class="inline-flex items-center gap-1 text-xs font-semibold mt-1 px-2 py-0.5 rounded-full price-drop">
+            ↓ Was £{{ '{:,}'.format(p.previous_price) }}
+            (−{{ ((p.previous_price - p.price) / p.previous_price * 100) | round | int }}%)
+          </span>
+          {% endif %}
         </div>
 
         <button

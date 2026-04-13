@@ -78,6 +78,8 @@ def build_searches(config: dict):
                 zoopla_url=s.get("zoopla_url") or None,
                 onthemarket_url=s.get("onthemarket_url") or None,
                 openrent_url=s.get("openrent_url") or None,
+                savills_url=s.get("savills_url") or None,
+                knightfrank_url=s.get("knightfrank_url") or None,
                 min_price=s.get("min_price"),
                 max_price=s.get("max_price"),
                 min_bedrooms=s.get("min_bedrooms"),
