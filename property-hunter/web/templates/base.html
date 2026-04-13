@@ -20,7 +20,28 @@
   </style>
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-900"
-      x-data="{ searchRunning: {{ 'true' if search_state.running else 'false' }} }">
+      x-data="{
+        searchRunning: {{ 'true' if search_state.running else 'false' }},
+        elapsed: {{ search_state.get('elapsed_seconds', 0) or 0 }},
+        _poll: null,
+        _timer: null,
+        startPolling() {
+          if (this._poll) return;
+          this._timer = setInterval(() => this.elapsed++, 1000);
+          this._poll = setInterval(() => {
+            fetch('/api/search-status').then(r => r.json()).then(s => {
+              if (s.elapsed_seconds) this.elapsed = s.elapsed_seconds;
+              if (!s.running) {
+                clearInterval(this._poll); this._poll = null;
+                clearInterval(this._timer); this._timer = null;
+                this.searchRunning = false;
+                location.reload();
+              }
+            }).catch(() => {});
+          }, 5000);
+        }
+      }"
+      x-init="if (searchRunning) startPolling()">
 
 <!-- Navigation -->
 <nav class="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
@@ -50,11 +71,9 @@
       <span class="text-xs text-red-500 hidden sm:block" title="{{ search_state.error }}">⚠ Error</span>
       {% endif %}
 
-      <!-- Searching indicator with live elapsed time -->
+      <!-- Searching indicator — shown whenever searchRunning is true -->
       <span x-show="searchRunning" x-cloak
-        x-data="{ elapsed: 0, _t: null }"
-        x-init="_t = setInterval(() => elapsed++, 1000)"
-        title="Fetching listings from Rightmove, Zoopla, OnTheMarket via Apify — typically takes 3–8 minutes"
+        title="Fetching from Rightmove, Zoopla, OnTheMarket, Savills via Apify — takes 3–8 min"
         class="text-xs font-medium text-amber-600 flex items-center gap-1.5 shrink-0">
         <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -73,18 +92,9 @@
         x-show="!searchRunning"
         @click="
           searchRunning = true;
+          elapsed = 0;
           fetch('/api/run-search', {method: 'POST'})
-            .then(() => {
-              let poll = setInterval(() => {
-                fetch('/api/search-status').then(r => r.json()).then(s => {
-                  if (!s.running) {
-                    clearInterval(poll);
-                    searchRunning = false;
-                    location.reload();
-                  }
-                });
-              }, 5000);
-            })
+            .then(() => startPolling())
             .catch(() => { searchRunning = false; });
         "
         class="text-sm font-medium bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800

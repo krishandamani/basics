@@ -30,6 +30,21 @@ app.secret_key = "property-hunter-local"
 _search_state: dict = {"running": False, "last_ran": None, "error": None, "started_at": None}
 
 
+def _search_state_for_template() -> dict:
+    """Return a copy of search state with elapsed_seconds computed, for templates."""
+    state = dict(_search_state)
+    elapsed = 0
+    if state.get("running") and state.get("started_at"):
+        try:
+            elapsed = int(
+                (datetime.now() - datetime.fromisoformat(state["started_at"])).total_seconds()
+            )
+        except Exception:
+            pass
+    state["elapsed_seconds"] = elapsed
+    return state
+
+
 def _run_search_background() -> None:
     _search_state["running"] = True
     _search_state["error"] = None
@@ -184,7 +199,7 @@ def index():
             "min_beds": min_beds_raw, "source": source,
             "sort": sort, "new_only": new_only,
         },
-        search_state        = _search_state,
+        search_state        = _search_state_for_template(),
         nl_active           = bool(q),
         new_count           = new_count,
         total_count         = len(all_props),
@@ -199,7 +214,7 @@ def favourites():
     return render_template(
         "favourites.html",
         properties   = _enrich_is_new(props),
-        search_state = _search_state,
+        search_state = _search_state_for_template(),
     )
 
 
@@ -229,7 +244,7 @@ def map_view():
     return render_template(
         "map.html",
         points       = points,
-        search_state = _search_state,
+        search_state = _search_state_for_template(),
     )
 
 
