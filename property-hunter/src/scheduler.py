@@ -21,8 +21,14 @@ from . import scrapers
 
 _USE_APIFY = bool(os.environ.get("APIFY_API_KEY"))
 
-# Max parallel scraper threads. 12 handles 18 searches × 3-4 scrapers well.
-_MAX_WORKERS = int(os.environ.get("SCRAPER_WORKERS", 12))
+# On cloud (Railway/GitHub Actions), Playwright scrapers OOM — Chromium uses
+# 300-500 MB per instance. Only run them locally where memory is abundant and
+# cloud IPs aren't blocked by Savills/Knight Frank anyway.
+_USE_PLAYWRIGHT = not _USE_APIFY and not os.environ.get("RAILWAY_ENVIRONMENT")
+
+# Keep workers low on cloud to avoid memory pressure from concurrent responses.
+# Apify calls are pure network I/O so 6 workers is plenty.
+_MAX_WORKERS = int(os.environ.get("SCRAPER_WORKERS", 6 if _USE_APIFY else 4))
 
 # Rate-limit health alerts: {search_id: datetime of last alert}
 _health_alert_sent: dict = {}
@@ -31,23 +37,28 @@ _HEALTH_ALERT_MIN_INTERVAL = timedelta(hours=12)
 
 def _build_scraper_defs() -> list:
     if _USE_APIFY:
+        # Cloud mode: Apify handles Rightmove/Zoopla/OTM; OpenRent is lightweight.
+        # Savills/KnightFrank are Playwright-only — excluded here to avoid OOM.
         from .scrapers import apify_scraper
         return [
             ("Rightmove",   "rightmove_url",   apify_scraper.scrape_rightmove),
             ("Zoopla",      "zoopla_url",       apify_scraper.scrape_zoopla),
             ("OnTheMarket", "onthemarket_url",  apify_scraper.scrape_onthemarket),
             ("OpenRent",    "openrent_url",     scrapers.openrent.scrape),
-            ("Savills",     "savills_url",      scrapers.savills.scrape),
-            ("KnightFrank", "knightfrank_url",  scrapers.knightfrank.scrape),
         ]
-    return [
+    # Local mode: direct scrapers + Playwright for premium agents (if available).
+    defs = [
         ("Rightmove",   "rightmove_url",   scrapers.rightmove.scrape),
         ("Zoopla",      "zoopla_url",      scrapers.zoopla.scrape),
         ("OnTheMarket", "onthemarket_url", scrapers.onthemarket.scrape),
         ("OpenRent",    "openrent_url",    scrapers.openrent.scrape),
-        ("Savills",     "savills_url",     scrapers.savills.scrape),
-        ("KnightFrank", "knightfrank_url", scrapers.knightfrank.scrape),
     ]
+    if _USE_PLAYWRIGHT:
+        defs += [
+            ("Savills",     "savills_url",     scrapers.savills.scrape),
+            ("KnightFrank", "knightfrank_url", scrapers.knightfrank.scrape),
+        ]
+    return defs
 
 
 def _do_scrape(scraper_fn, search: Search, source_name: str):
