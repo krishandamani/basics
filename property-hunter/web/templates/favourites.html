@@ -97,6 +97,12 @@
           {{ p.commute_minutes }} min commute
         </span>
         {% endif %}
+        {% if p.school_rating %}
+        <span class="bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-0.5 rounded-full"
+              title="{{ p.nearest_school }}">
+          🎓 {{ p.school_rating }} school nearby
+        </span>
+        {% endif %}
       </div>
 
       <a href="{{ p.url }}" target="_blank" rel="noopener"

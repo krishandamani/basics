@@ -1,6 +1,7 @@
-"""Optional enrichment — adds crime stats and EPC ratings to matched properties.
-All sources used here are free public UK APIs. Each enrichment is attempted
-independently; if any call fails, the property is still included without that field.
+"""Optional enrichment — adds crime stats, EPC ratings, and nearest school
+to matched properties. All sources are free public UK APIs.
+Each enrichment is attempted independently; if any call fails, the property
+is still included without that field.
 """
 
 import re
@@ -60,8 +61,48 @@ def _enrich_epc(prop: Property) -> Property:
     return prop
 
 
+def _enrich_school(prop: Property) -> Property:
+    """Find the nearest Good/Outstanding Ofsted-rated school within 1 mile.
+
+    Uses the UK Government's Get Information About Schools (GIAS) API.
+    Free, no API key required.
+
+    Sets prop.nearest_school and prop.school_rating if found.
+    """
+    if not prop.postcode:
+        return prop
+    try:
+        clean = re.sub(r"\s+", "", prop.postcode).upper()
+        # OfstedRating: 1=Outstanding, 2=Good
+        r = requests.get(
+            "https://api.get-information-about-schools.service.gov.uk/api/establishments",
+            params={
+                "nearestToPostCode": clean,
+                "radiusInMiles": 1,
+                "ofstedRating[]": ["1", "2"],
+                "status": "Open",
+                "fields": "EstablishmentName,OfstedRating",
+            },
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 200:
+            schools = r.json()
+            if schools:
+                first = schools[0]
+                name = first.get("EstablishmentName", "")
+                rating_code = str(first.get("OfstedRating", ""))
+                rating_label = {"1": "Outstanding", "2": "Good"}.get(rating_code, "")
+                if name and rating_label:
+                    prop.nearest_school = name
+                    prop.school_rating = rating_label
+    except Exception:
+        pass
+    return prop
+
+
 def enrich(prop: Property) -> Property:
     """Run all enrichments. Safe to call even if no postcode is available."""
     prop = _enrich_crime(prop)
     prop = _enrich_epc(prop)
+    prop = _enrich_school(prop)
     return prop

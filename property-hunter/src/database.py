@@ -78,9 +78,17 @@ def init_db() -> None:
                 epc_rating      TEXT,
                 crime_rate      TEXT,
                 commute_minutes INTEGER,
+                nearest_school  TEXT,
+                school_rating   TEXT,
                 first_seen      TEXT
             )
         """)
+        # Add columns that may be missing from older schemas (safe to run repeatedly)
+        for col, defn in [("nearest_school", "TEXT"), ("school_rating", "TEXT")]:
+            try:
+                _x(conn, f"ALTER TABLE properties ADD COLUMN {col} {defn}")
+            except Exception:
+                pass  # already exists
         _x(conn, """
             CREATE TABLE IF NOT EXISTS alerts_sent (
                 property_id TEXT,
@@ -125,6 +133,7 @@ def save_property(prop: Property) -> None:
         prop.price, prop.bedrooms, prop.property_type, prop.address,
         prop.title, prop.postcode, prop.image_url,
         prop.epc_rating, prop.crime_rate, prop.commute_minutes,
+        prop.nearest_school, prop.school_rating,
         prop.first_seen.isoformat(),
     )
     with _db() as conn:
@@ -133,8 +142,8 @@ def save_property(prop: Property) -> None:
                 INSERT INTO properties
                     (id, source, listing_type, url, price, bedrooms, property_type,
                      address, title, postcode, image_url, epc_rating, crime_rate,
-                     commute_minutes, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     commute_minutes, nearest_school, school_rating, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (id) DO UPDATE SET
                     source          = EXCLUDED.source,
                     listing_type    = EXCLUDED.listing_type,
@@ -148,15 +157,17 @@ def save_property(prop: Property) -> None:
                     image_url       = EXCLUDED.image_url,
                     epc_rating      = EXCLUDED.epc_rating,
                     crime_rate      = EXCLUDED.crime_rate,
-                    commute_minutes = EXCLUDED.commute_minutes
+                    commute_minutes = EXCLUDED.commute_minutes,
+                    nearest_school  = EXCLUDED.nearest_school,
+                    school_rating   = EXCLUDED.school_rating
             """, params)
         else:
             _x(conn, """
                 INSERT OR REPLACE INTO properties
                     (id, source, listing_type, url, price, bedrooms, property_type,
                      address, title, postcode, image_url, epc_rating, crime_rate,
-                     commute_minutes, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     commute_minutes, nearest_school, school_rating, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, params)
 
 
