@@ -30,6 +30,11 @@ _USE_PLAYWRIGHT = not _USE_APIFY and not os.environ.get("RAILWAY_ENVIRONMENT")
 # Apify calls are pure network I/O so 6 workers is plenty.
 _MAX_WORKERS = int(os.environ.get("SCRAPER_WORKERS", 6 if _USE_APIFY else 4))
 
+
+def _apify_configured() -> bool:
+    """Re-check at runtime in case the env var was set after process start."""
+    return bool(os.environ.get("APIFY_API_KEY"))
+
 # Rate-limit health alerts: {search_id: datetime of last alert}
 _health_alert_sent: dict = {}
 _HEALTH_ALERT_MIN_INTERVAL = timedelta(hours=12)
@@ -134,17 +139,22 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
         print(f"» {search.name}")
         print(f"  Scraped: {len(raw)}  |  zero sources: {zero_sources or 'none'}")
 
-        # Health alert when every enabled source returned nothing
-        # Rate-limited to once per 12h per search to avoid inbox spam
+        # Health alert when every enabled source returned nothing.
+        # Only fires when Apify IS configured — without it, 0 results from
+        # cloud IPs is completely expected (sites block datacentre traffic).
+        # Rate-limited to once per 12h per search to survive restarts better.
         if zero_sources and len(zero_sources) == enabled_count:
-            last_sent = _health_alert_sent.get(search.id)
-            if not last_sent or (datetime.now() - last_sent) > _HEALTH_ALERT_MIN_INTERVAL:
-                print(f"  ⚠ All sources returned 0 — sending health alert")
-                send_health_alert(search.name, zero_sources, config)
-                _health_alert_sent[search.id] = datetime.now()
+            if not _apify_configured():
+                print(f"  ⚠ All sources returned 0 — suppressed (APIFY_API_KEY not set)")
             else:
-                mins = int((datetime.now() - last_sent).total_seconds() / 60)
-                print(f"  ⚠ All sources returned 0 — health alert suppressed (sent {mins}m ago)")
+                last_sent = _health_alert_sent.get(search.id)
+                if not last_sent or (datetime.now() - last_sent) > _HEALTH_ALERT_MIN_INTERVAL:
+                    print(f"  ⚠ All sources returned 0 — sending health alert")
+                    send_health_alert(search.name, zero_sources, config)
+                    _health_alert_sent[search.id] = datetime.now()
+                else:
+                    mins = int((datetime.now() - last_sent).total_seconds() / 60)
+                    print(f"  ⚠ All sources returned 0 — health alert suppressed (sent {mins}m ago)")
 
         matched = filter_properties(raw, search)
         print(f"  Matched criteria: {len(matched)}")
