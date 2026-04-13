@@ -39,9 +39,12 @@ def _apify_configured() -> bool:
 _health_alert_sent: dict = {}
 _HEALTH_ALERT_MIN_INTERVAL = timedelta(hours=12)
 
+# Diagnostics — populated each run_cycle(), read by /api/diagnostics
+_last_run_stats: dict = {}
+
 
 def _build_scraper_defs() -> list:
-    if _USE_APIFY:
+    if _apify_configured():
         # Cloud mode: Apify handles Rightmove/Zoopla/OTM; OpenRent is lightweight.
         # Savills/KnightFrank are Playwright-only — excluded here to avoid OOM.
         from .scrapers import apify_scraper
@@ -67,22 +70,27 @@ def _build_scraper_defs() -> list:
 
 
 def _do_scrape(scraper_fn, search: Search, source_name: str):
-    """Worker: run one scraper, return (search_id, source_name, results)."""
+    """Worker: run one scraper, return (search_id, source_name, results, error_msg)."""
     try:
         results = scraper_fn(search)
-        return search.id, source_name, results
+        return search.id, source_name, results, None
     except Exception as exc:
+        msg = f"{source_name}: {exc}"
         print(f"  [{source_name}] Unexpected error: {exc}")
-        return search.id, source_name, []
+        return search.id, source_name, [], msg
 
 
 def run_cycle(config: dict, searches: List[Search]) -> None:
     """One full search cycle: scrape (parallel) → filter → deduplicate → enrich → email."""
+    _last_run_stats.clear()
+    backend = "apify" if _apify_configured() else "direct"
+    _last_run_stats["backend"] = backend
+    _last_run_stats["errors"] = []
+
     now = datetime.now().strftime("%H:%M on %d %b")
     print(f"\n{'='*60}")
     print(f"  Property Hunter — {now}")
-    print(f"  Backend: {'Apify' if _USE_APIFY else 'direct (local)'}"
-          f"  |  Searches: {len(searches)}")
+    print(f"  Backend: {backend}  |  Searches: {len(searches)}")
     print(f"{'='*60}")
 
     scraper_defs = _build_scraper_defs()
@@ -109,14 +117,19 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
         for future in as_completed(future_map):
             search_id, source_name = future_map[future]
             try:
-                _, _, results = future.result()
+                _, _, results, err = future.result()
+                if err:
+                    _last_run_stats["errors"].append(err)
             except Exception as exc:
                 print(f"  [{source_name}] Error: {exc}")
                 results = []
+                _last_run_stats["errors"].append(f"{source_name}: {exc}")
             scraped.setdefault(search_id, {})[source_name] = results
 
     elapsed = time.monotonic() - t0
     total_raw = sum(len(r) for sd in scraped.values() for r in sd.values())
+    _last_run_stats["total_raw"] = total_raw
+    _last_run_stats["elapsed_s"] = round(elapsed, 1)
     print(f"  Done in {elapsed:.0f}s — {total_raw} total listings fetched\n")
 
     # ── Phase 2: filter, deduplicate, enrich, save ────────────────────────────

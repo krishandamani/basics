@@ -106,6 +106,17 @@
   </div>
 </nav>
 
+<!-- Diagnostics banner -->
+{% if not search_state.apify_configured %}
+<div class="bg-amber-50 border-b border-amber-200 text-xs text-amber-800 px-4 py-2 text-center">
+  ⚠ <strong>APIFY_API_KEY not set</strong> — add it to Railway Variables then redeploy to get live results
+</div>
+{% elif search_state.error %}
+<div class="bg-red-50 border-b border-red-200 text-xs text-red-800 px-4 py-2 text-center">
+  ⚠ Last search error: {{ search_state.error }}
+</div>
+{% endif %}
+
 <!-- Main content -->
 <main class="max-w-7xl mx-auto px-4 sm:px-6 py-5">
   {% block content %}{% endblock %}

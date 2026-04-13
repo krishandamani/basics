@@ -42,6 +42,7 @@ def _search_state_for_template() -> dict:
         except Exception:
             pass
     state["elapsed_seconds"] = elapsed
+    state["apify_configured"] = bool(os.environ.get("APIFY_API_KEY"))
     return state
 
 
@@ -280,6 +281,15 @@ def api_search_status():
         except Exception:
             state["elapsed_seconds"] = 0
     return jsonify(state)
+
+
+@app.route("/api/diagnostics")
+def api_diagnostics():
+    from src.scheduler import _apify_configured, _last_run_stats
+    return jsonify({
+        "apify_configured": _apify_configured(),
+        "last_run": _last_run_stats,
+    })
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
