@@ -13,9 +13,8 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, render_template, request, url_for
 
-# Add property-hunter/ root to sys.path so we can import src.* and main
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.database import (
@@ -47,7 +46,6 @@ def _run_search_background() -> None:
         with open(cfg_path) as f:
             config = yaml.safe_load(f) or {}
 
-        import os
         env_pw = os.environ.get("GMAIL_APP_PASSWORD", "")
         if env_pw and not config.get("email", {}).get("app_password"):
             config.setdefault("email", {})["app_password"] = env_pw
@@ -68,10 +66,7 @@ def _run_search_background() -> None:
 # ── Natural language parsing ──────────────────────────────────────────────────
 
 def _parse_nl(query: str) -> dict:
-    """Parse a natural-language query into filter criteria via Claude API.
-
-    Returns an empty dict if ANTHROPIC_API_KEY is not set or parsing fails.
-    """
+    """Parse a natural-language query into filter criteria via Claude API."""
     try:
         import anthropic
         client = anthropic.Anthropic()
@@ -88,7 +83,6 @@ def _parse_nl(query: str) -> dict:
             messages=[{"role": "user", "content": query}],
         )
         text = response.content[0].text.strip()
-        # Strip markdown fences if present
         if "```" in text:
             text = text.split("```")[1].lstrip("json").strip()
         return json.loads(text)
@@ -99,10 +93,7 @@ def _parse_nl(query: str) -> dict:
 # ── Geocoding ─────────────────────────────────────────────────────────────────
 
 def _geocode(postcodes: list) -> dict:
-    """Bulk-geocode UK postcodes via postcodes.io (free, no key).
-
-    Returns {postcode: (lat, lng)}.
-    """
+    """Bulk-geocode UK postcodes via postcodes.io (free, no key)."""
     if not postcodes:
         return {}
     try:
@@ -158,27 +149,45 @@ def index():
     max_price_raw = request.args.get("max_price", "")
     min_beds_raw  = request.args.get("min_beds", "")
     source        = request.args.get("source", "")
+    sort          = request.args.get("sort", "newest")
+    new_only      = bool(request.args.get("new_only"))
 
     nl = _parse_nl(q) if q else {}
 
-    props = get_web_properties(
+    all_props = _enrich_is_new(get_web_properties(
         listing_type  = nl.get("listing_type") or listing_type,
         min_price     = nl.get("min_price")    or _parse_int(min_price_raw),
         max_price     = nl.get("max_price")    or _parse_int(max_price_raw),
         min_bedrooms  = nl.get("min_bedrooms") or _parse_int(min_beds_raw),
         source        = source,
-    )
+        sort          = sort,
+    ))
+
+    new_count = sum(1 for p in all_props if p["is_new"])
+    displayed  = [p for p in all_props if p["is_new"]] if new_only else all_props
+
+    active_filter_count = sum(bool(x) for x in [
+        listing_type, min_price_raw, max_price_raw, min_beds_raw, source, q
+    ])
+
+    # Used in templates to build tab URLs that preserve current filters
+    base_params = {k: v for k, v in request.args.items() if k != "new_only"}
 
     return render_template(
         "index.html",
-        properties   = _enrich_is_new(props),
-        filters      = {
+        properties          = displayed,
+        filters             = {
             "q": q, "listing_type": listing_type,
             "min_price": min_price_raw, "max_price": max_price_raw,
             "min_beds": min_beds_raw, "source": source,
+            "sort": sort, "new_only": new_only,
         },
-        search_state = _search_state,
-        nl_active    = bool(q),
+        search_state        = _search_state,
+        nl_active           = bool(q),
+        new_count           = new_count,
+        total_count         = len(all_props),
+        active_filter_count = active_filter_count,
+        base_params         = base_params,
     )
 
 
@@ -255,8 +264,8 @@ if __name__ == "__main__":
     init_db()
     init_web_tables()
     print()
-    print("  🏠  Property Hunter")
-    print(f"  →  http://localhost:5000")
+    print("  Property Hunter")
+    print(f"  http://localhost:5000")
     print(f"  DB: {DB_PATH}")
     print()
     port = int(os.environ.get("PORT", 5000))

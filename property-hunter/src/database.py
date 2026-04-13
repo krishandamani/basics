@@ -200,6 +200,7 @@ def get_web_properties(
     min_bedrooms: int = None,
     source: str = "",
     favourites_only: bool = False,
+    sort: str = "newest",
     limit: int = 300,
 ) -> list:
     """Return properties joined with user marks, for the web UI."""
@@ -225,6 +226,14 @@ def get_web_properties(
         params.append(source)
 
     where = "WHERE " + " AND ".join(conditions)
+
+    # Nulls/zeros sort to the end for price sorts
+    _zero_last = "CASE WHEN p.price IS NULL OR p.price = 0 THEN 1 ELSE 0 END"
+    order_by = {
+        "price_asc":  f"{_zero_last}, p.price ASC",
+        "price_desc": f"{_zero_last}, p.price DESC",
+    }.get(sort, "p.first_seen DESC")
+
     params.append(limit)
 
     with _db() as conn:
@@ -235,7 +244,7 @@ def get_web_properties(
             FROM properties p
             LEFT JOIN user_marks u ON p.id = u.property_id
             {where}
-            ORDER BY p.first_seen DESC
+            ORDER BY {order_by}
             LIMIT ?
         """, params).fetchall()
 

@@ -1,141 +1,228 @@
 {% extends "base.html" %}
 {% block title %}
-  {% if properties %}{{ properties | length }} properties{% else %}Property Hunter{% endif %}
+  {% if properties %}{{ properties | length }} properties — Property Hunter
+  {% else %}Property Hunter{% endif %}
 {% endblock %}
 
 {% block content %}
 
-<!-- Natural language search -->
-<form method="get" action="/" x-data="{ busy: false }" @submit="busy = true" class="mb-5">
-  <div class="relative">
-    <input
-      name="q"
-      value="{{ filters.q }}"
-      placeholder="Describe what you want… e.g. 2 bed flat in East London under £1,800/month"
-      class="w-full pl-5 pr-32 py-4 rounded-2xl border border-slate-200 bg-white shadow-sm
-             text-slate-900 placeholder-slate-400 text-sm
-             focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-      autocomplete="off"
-    />
-    <button
-      type="submit"
-      :class="busy ? 'opacity-60 cursor-not-allowed' : 'hover:bg-indigo-700'"
-      class="absolute right-2 top-2 bg-indigo-600 text-white text-sm font-medium
-             px-5 py-2.5 rounded-xl transition-colors"
-    >
-      <span x-show="!busy">Search</span>
-      <span x-show="busy" x-cloak>…</span>
+<!-- ── Tab bar + filter toggle ────────────────────────────────────────────── -->
+<div x-data="{ filtersOpen: {{ 'true' if active_filter_count else 'false' }} }" class="mb-4">
+
+  <div class="flex items-center justify-between gap-3 mb-3">
+
+    <!-- All / New today tabs -->
+    <div class="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+      <a href="{{ url_for('index', **base_params) }}"
+         class="text-sm font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5
+                {{ 'bg-indigo-600 text-white shadow-sm' if not filters.new_only
+                   else 'text-slate-500 hover:bg-slate-50 hover:text-slate-800' }}">
+        All
+        <span class="text-xs {{ 'text-indigo-200' if not filters.new_only else 'text-slate-400' }}">
+          {{ total_count }}
+        </span>
+      </a>
+      <a href="{{ url_for('index', new_only=1, **base_params) }}"
+         class="text-sm font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5
+                {{ 'bg-indigo-600 text-white shadow-sm' if filters.new_only
+                   else 'text-slate-500 hover:bg-slate-50 hover:text-slate-800' }}">
+        New today
+        {% if new_count %}
+        <span class="bg-emerald-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+          {{ new_count }}
+        </span>
+        {% endif %}
+      </a>
+    </div>
+
+    <!-- Filter toggle -->
+    <button @click="filtersOpen = !filtersOpen"
+            class="flex items-center gap-2 text-sm border border-slate-200 bg-white rounded-xl
+                   px-3 py-2 hover:bg-slate-50 transition-colors shadow-sm text-slate-700 shrink-0">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 4h18M7 8h10M11 12h2M9 16h6"/>
+      </svg>
+      <span class="hidden sm:inline">Filters</span>
+      {% if active_filter_count %}
+      <span class="bg-indigo-600 text-white text-xs rounded-full w-5 h-5
+                   flex items-center justify-center font-bold">{{ active_filter_count }}</span>
+      {% endif %}
     </button>
   </div>
 
-  {% if nl_active %}
-  <p class="text-xs text-indigo-600 mt-2 ml-1">
-    ✨ AI-parsed from your description —
-    <a href="/" class="underline hover:text-indigo-800">clear</a>
-  </p>
-  {% endif %}
+  <!-- Collapsible filter panel -->
+  <div x-show="filtersOpen" x-cloak
+       x-transition:enter="transition ease-out duration-150"
+       x-transition:enter-start="opacity-0 -translate-y-1"
+       x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-100"
+       x-transition:leave-end="opacity-0 -translate-y-1"
+       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-2">
 
-  <!-- Filter strip -->
-  <div class="flex flex-wrap gap-2 mt-3">
-    <select name="listing_type" onchange="this.form.submit()"
-      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700
-             focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <option value="">All types</option>
-      <option value="rent"  {% if filters.listing_type == 'rent'  %}selected{% endif %}>Rent</option>
-      <option value="sale"  {% if filters.listing_type == 'sale'  %}selected{% endif %}>For sale</option>
-    </select>
+    <form method="get" action="/">
+      {% if filters.new_only %}<input type="hidden" name="new_only" value="1">{% endif %}
 
-    <input name="min_price" value="{{ filters.min_price }}" placeholder="Min £"
-      type="number" min="0"
-      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 w-24
-             focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      <!-- AI search bar -->
+      <div class="relative mb-3">
+        <input name="q" value="{{ filters.q }}"
+               placeholder="Describe what you want… e.g. 4 bed house in Hitchin under £1.1M"
+               class="w-full pl-4 pr-[5.5rem] py-3 rounded-xl border border-slate-200 text-sm
+                      placeholder-slate-400 text-slate-900
+                      focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        <button type="submit"
+                class="absolute right-2 top-1.5 bg-indigo-600 hover:bg-indigo-700 text-white
+                       text-xs font-semibold px-4 py-2 rounded-lg transition-colors">Search</button>
+      </div>
+      {% if nl_active %}
+      <p class="text-xs text-indigo-600 -mt-1 mb-3 ml-1 flex items-center gap-1">
+        ✨ AI-parsed from your description —
+        <a href="{{ url_for('index', **base_params) }}" class="underline hover:text-indigo-800">clear</a>
+      </p>
+      {% endif %}
 
-    <input name="max_price" value="{{ filters.max_price }}" placeholder="Max £"
-      type="number" min="0"
-      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 w-24
-             focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      <!-- Filter grid: 2 cols on mobile, 4 on wider -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <div>
+          <label class="text-xs font-semibold text-slate-500 block mb-1">Type</label>
+          <select name="listing_type"
+            class="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                   focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <option value="">Any</option>
+            <option value="rent" {% if filters.listing_type == 'rent' %}selected{% endif %}>For rent</option>
+            <option value="sale" {% if filters.listing_type == 'sale' %}selected{% endif %}>For sale</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-500 block mb-1">Min beds</label>
+          <select name="min_beds"
+            class="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                   focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <option value="">Any</option>
+            {% for n in [2, 3, 4, 5] %}
+            <option value="{{ n }}" {% if filters.min_beds == n|string %}selected{% endif %}>{{ n }}+ beds</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-500 block mb-1">Min price</label>
+          <input name="min_price" value="{{ filters.min_price }}" placeholder="£"
+            type="number" min="0"
+            class="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                   focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-500 block mb-1">Max price</label>
+          <input name="max_price" value="{{ filters.max_price }}" placeholder="£"
+            type="number" min="0"
+            class="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                   focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+      </div>
 
-    <select name="min_beds" onchange="this.form.submit()"
-      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700
-             focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <option value="">Any beds</option>
-      {% for n in [1, 2, 3, 4, 5] %}
-      <option value="{{ n }}" {% if filters.min_beds == n|string %}selected{% endif %}>{{ n }}+ beds</option>
-      {% endfor %}
-    </select>
+      <!-- Second row: site + sort + actions -->
+      <div class="flex flex-wrap items-center gap-2">
+        <select name="source"
+          class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <option value="">All sites</option>
+          <option value="rightmove" {% if filters.source == 'rightmove' %}selected{% endif %}>Rightmove</option>
+          <option value="zoopla"    {% if filters.source == 'zoopla'    %}selected{% endif %}>Zoopla</option>
+          <option value="openrent"  {% if filters.source == 'openrent'  %}selected{% endif %}>OpenRent</option>
+        </select>
+        <select name="sort"
+          class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <option value="newest"     {% if not filters.sort or filters.sort == 'newest'    %}selected{% endif %}>Newest first</option>
+          <option value="price_asc"  {% if filters.sort == 'price_asc'  %}selected{% endif %}>Price ↑</option>
+          <option value="price_desc" {% if filters.sort == 'price_desc' %}selected{% endif %}>Price ↓</option>
+        </select>
 
-    <select name="source" onchange="this.form.submit()"
-      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700
-             focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <option value="">All sites</option>
-      <option value="rightmove"    {% if filters.source == 'rightmove'    %}selected{% endif %}>Rightmove</option>
-      <option value="zoopla"       {% if filters.source == 'zoopla'       %}selected{% endif %}>Zoopla</option>
-      <option value="onthemarket"  {% if filters.source == 'onthemarket'  %}selected{% endif %}>OnTheMarket</option>
-      <option value="openrent"     {% if filters.source == 'openrent'     %}selected{% endif %}>OpenRent</option>
-    </select>
-
-    {% if filters.q or filters.listing_type or filters.min_price or filters.max_price or filters.min_beds or filters.source %}
-    <a href="/"
-       class="text-sm text-slate-500 hover:text-slate-700 px-3 py-1.5 border border-slate-200
-              rounded-lg bg-white hover:bg-slate-50 transition-colors">✕ Clear all</a>
-    {% endif %}
-
-    <!-- Apply button for price inputs -->
-    <button type="submit"
-      class="text-sm text-indigo-600 hover:text-indigo-800 px-3 py-1.5 border border-indigo-200
-             rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors">
-      Apply
-    </button>
+        <div class="ml-auto flex gap-2">
+          {% if active_filter_count %}
+          <a href="{{ url_for('index', **({'new_only': '1'} if filters.new_only else {})) }}"
+             class="text-sm text-slate-500 hover:text-slate-700 px-3 py-2 border border-slate-200
+                    rounded-lg hover:bg-slate-50 transition-colors">Clear</a>
+          {% endif %}
+          <button type="submit"
+                  class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-semibold
+                         px-4 py-2 rounded-lg transition-colors">Apply</button>
+        </div>
+      </div>
+    </form>
   </div>
-</form>
+</div>
 
-<!-- Count -->
+<!-- ── Result count & map link ────────────────────────────────────────────── -->
+{% if properties %}
 <div class="flex items-center justify-between mb-4">
   <p class="text-sm text-slate-500">
     <span class="font-semibold text-slate-800">{{ properties | length }}</span>
     propert{{ 'y' if properties | length == 1 else 'ies' }}
+    {% if filters.new_only %}<span class="text-emerald-600 font-medium"> · new today</span>{% endif %}
     {% if filters.q %} matching "<em>{{ filters.q }}</em>"{% endif %}
   </p>
-  {% if properties %}
-  <a href="/map" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">View on map →</a>
+  <a href="/map" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+    </svg>
+    Map view
+  </a>
+</div>
+{% endif %}
+
+<!-- ── Empty state ────────────────────────────────────────────────────────── -->
+{% if not properties %}
+<div class="text-center py-20">
+  {% if filters.new_only %}
+  <div class="text-6xl mb-4 opacity-50">🌅</div>
+  <h2 class="text-xl font-semibold text-slate-700 mb-2">No new listings today</h2>
+  <p class="text-slate-500 mb-6 max-w-xs mx-auto">
+    Nothing new in the last 24 hours. Check back later or view all properties.
+  </p>
+  <a href="{{ url_for('index', **base_params) }}"
+     class="inline-block bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-medium transition-colors">
+    View all {{ total_count }} properties
+  </a>
+  {% else %}
+  <div class="text-6xl mb-4 opacity-40">🏡</div>
+  <h2 class="text-xl font-semibold text-slate-700 mb-2">No properties yet</h2>
+  <p class="text-slate-500 mb-6 max-w-xs mx-auto">
+    Tap <strong>Search now</strong> in the top bar to pull listings from
+    Rightmove, Zoopla, and OpenRent across your 9 search areas.
+  </p>
   {% endif %}
 </div>
 
-<!-- Empty state -->
-{% if not properties %}
-<div class="text-center py-24">
-  <div class="text-7xl mb-5 opacity-50">🏡</div>
-  <h2 class="text-xl font-semibold text-slate-700 mb-2">No properties yet</h2>
-  <p class="text-slate-500 mb-8 max-w-xs mx-auto">
-    Click <strong>Search now</strong> in the top-right to fetch listings from
-    Rightmove, Zoopla, OnTheMarket, and OpenRent.
-  </p>
-</div>
-
 {% else %}
-<!-- Property grid -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+<!-- ── Property grid ──────────────────────────────────────────────────────── -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
   {% for p in properties %}
-  <div class="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-200"
+  <div class="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md
+              transition-all duration-200 flex flex-col"
        id="card-{{ p.id }}">
 
     <!-- Photo -->
-    <div class="relative bg-slate-100" style="aspect-ratio: 16/10; overflow: hidden;">
+    <div class="relative bg-gradient-to-br from-slate-100 to-slate-200"
+         style="aspect-ratio: 16/9; overflow: hidden;">
       {% if p.image_url %}
       <img src="{{ p.image_url }}" alt="{{ p.title }}"
-           class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+           class="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
            loading="lazy">
       {% else %}
-      <div class="w-full h-full flex items-center justify-center opacity-20 text-6xl select-none">🏡</div>
+      <div class="w-full h-full flex items-center justify-center">
+        <span class="text-5xl opacity-20 select-none">🏡</span>
+      </div>
       {% endif %}
 
       <!-- NEW badge -->
       {% if p.is_new %}
       <span class="absolute top-3 left-3 bg-emerald-500 text-white text-xs font-bold
-                   px-2.5 py-1 rounded-full shadow-sm">NEW</span>
+                   px-2.5 py-1 rounded-full shadow-sm tracking-wide">NEW</span>
       {% endif %}
 
-      <!-- Source badge -->
+      <!-- Source badge (frosted) -->
       <span class="absolute top-3 right-3 text-xs font-semibold
                    px-2.5 py-1 rounded-full src-{{ p.source }} shadow-sm">
         {{ p.source | title }}
@@ -143,30 +230,57 @@
     </div>
 
     <!-- Card body -->
-    <div class="p-4">
-      <div class="flex items-start justify-between gap-2">
+    <div class="p-4 flex flex-col flex-1">
+
+      <!-- Price row -->
+      <div class="flex items-start justify-between gap-2 mb-1">
         <div class="min-w-0">
-          <p class="text-2xl font-bold text-slate-900 leading-tight">
-            {% if p.price %}
-              £{{ '{:,}'.format(p.price) }}{% if p.listing_type == 'rent' %}<span class="text-sm font-normal text-slate-400">/mo</span>{% endif %}
-            {% else %}
-              <span class="text-slate-400 text-base">Price on request</span>
-            {% endif %}
-          </p>
+          <div class="flex items-baseline gap-2 flex-wrap">
+            <span class="text-2xl font-bold text-slate-900 leading-tight">
+              {% if p.price %}
+                £{{ '{:,}'.format(p.price) }}{% if p.listing_type == 'rent' %}<span class="text-sm font-normal text-slate-400">/mo</span>{% endif %}
+              {% else %}
+                <span class="text-slate-400 text-base font-medium">POA</span>
+              {% endif %}
+            </span>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full type-{{ p.listing_type }}">
+              {{ 'For Sale' if p.listing_type == 'sale' else 'To Rent' }}
+            </span>
+          </div>
           <p class="text-sm text-slate-500 mt-0.5 truncate">{{ p.address or p.title or "—" }}</p>
         </div>
 
-        <!-- Favourite heart -->
+        <!-- Favourite heart (larger touch target) -->
         <button
           onclick="toggleFavourite(this, '{{ p.id }}')"
           data-fav="{{ 'true' if p.favourited else 'false' }}"
-          title="{{ 'Remove from saved' if p.favourited else 'Save property' }}"
-          class="text-xl shrink-0 mt-0.5 transition-transform duration-150 hover:scale-125 active:scale-90"
+          title="{{ 'Saved' if p.favourited else 'Save' }}"
+          class="text-2xl shrink-0 leading-none p-1 -mr-1 transition-transform duration-150
+                 hover:scale-125 active:scale-90 touch-manipulation"
         >{{ '❤️' if p.favourited else '🤍' }}</button>
       </div>
 
-      <!-- Attribute badges -->
-      <div class="flex flex-wrap gap-1.5 mt-3">
+      <!-- Key stats: commute + school (most relevant, shown prominently) -->
+      {% if p.commute_minutes or p.school_rating %}
+      <div class="flex flex-wrap gap-1.5 mt-2 mb-1">
+        {% if p.commute_minutes %}
+        <span class="bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-medium
+                     px-2.5 py-1 rounded-full flex items-center gap-1">
+          🚂 {{ p.commute_minutes }} min to London
+        </span>
+        {% endif %}
+        {% if p.school_rating %}
+        <span class="bg-amber-50 text-amber-700 border border-amber-100 text-xs font-medium
+                     px-2.5 py-1 rounded-full flex items-center gap-1"
+              title="{{ p.nearest_school }}">
+          🎓 {{ p.school_rating }} school nearby
+        </span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- Secondary badges -->
+      <div class="flex flex-wrap gap-1.5 mt-1.5">
         {% if p.bedrooms %}
         <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">
           {{ p.bedrooms }} bed
@@ -178,40 +292,30 @@
         </span>
         {% endif %}
         {% if p.epc_rating %}
-        <span class="bg-green-50 text-green-700 border border-green-200 text-xs px-2.5 py-0.5 rounded-full">
+        <span class="bg-green-50 text-green-700 border border-green-100 text-xs px-2.5 py-0.5 rounded-full">
           EPC {{ p.epc_rating }}
         </span>
         {% endif %}
         {% if p.crime_rate %}
-        <span class="bg-blue-50 text-blue-700 border border-blue-200 text-xs px-2.5 py-0.5 rounded-full">
+        <span class="bg-blue-50 text-blue-700 border border-blue-100 text-xs px-2.5 py-0.5 rounded-full">
           {{ p.crime_rate }} crime
-        </span>
-        {% endif %}
-        {% if p.commute_minutes %}
-        <span class="bg-purple-50 text-purple-700 border border-purple-200 text-xs px-2.5 py-0.5 rounded-full">
-          {{ p.commute_minutes }} min commute
-        </span>
-        {% endif %}
-        {% if p.school_rating %}
-        <span class="bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-0.5 rounded-full"
-              title="{{ p.nearest_school }}">
-          🎓 {{ p.school_rating }} school nearby
         </span>
         {% endif %}
       </div>
 
-      <!-- Action buttons -->
-      <div class="flex gap-2 mt-4">
+      <!-- Action buttons (pushed to bottom) -->
+      <div class="flex gap-2 mt-auto pt-4">
         <a href="{{ p.url }}" target="_blank" rel="noopener"
            class="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
-                  text-white rounded-xl py-2.5 text-sm font-medium transition-colors">
+                  text-white rounded-xl py-2.5 text-sm font-semibold transition-colors">
           View listing →
         </a>
         <button
           onclick="hideCard('{{ p.id }}')"
           title="Hide this property"
           class="px-3 py-2.5 text-slate-400 hover:text-slate-700 border border-slate-200
-                 hover:border-slate-300 rounded-xl hover:bg-slate-50 text-sm transition-colors">
+                 hover:border-slate-300 rounded-xl hover:bg-slate-50 text-sm transition-colors
+                 touch-manipulation">
           ✕
         </button>
       </div>
@@ -236,7 +340,7 @@ function hideCard(id) {
   fetch(`/api/hide/${id}`, {method: 'POST'}).then(() => {
     card.style.transition = 'opacity 0.25s, transform 0.25s';
     card.style.opacity = '0';
-    card.style.transform = 'scale(0.96)';
+    card.style.transform = 'scale(0.95)';
     setTimeout(() => card.remove(), 260);
   });
 }
