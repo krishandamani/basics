@@ -12,7 +12,10 @@ from typing import List
 
 import schedule
 
-from .database import get_stored_price, init_db, is_new, mark_sent, save_property
+from .database import (
+    get_stored_price, get_health_alert_sent, init_db,
+    is_new, mark_sent, save_property, set_health_alert_sent,
+)
 from .enricher import enrich
 from .matcher import filter_properties
 from .models import Search
@@ -35,8 +38,8 @@ def _apify_configured() -> bool:
     """Re-check at runtime in case the env var was set after process start."""
     return bool(os.environ.get("APIFY_API_KEY"))
 
-# Rate-limit health alerts: {search_id: datetime of last alert}
-_health_alert_sent: dict = {}
+# Minimum gap between health-alert emails for the same search.
+# Stored in DB (not memory) so Railway restarts don't reset the clock.
 _HEALTH_ALERT_MIN_INTERVAL = timedelta(hours=12)
 
 # Diagnostics — populated each run_cycle(), read by /api/diagnostics
@@ -160,11 +163,11 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
             if not _apify_configured():
                 print(f"  ⚠ All sources returned 0 — suppressed (APIFY_API_KEY not set)")
             else:
-                last_sent = _health_alert_sent.get(search.id)
+                last_sent = get_health_alert_sent(search.id)
                 if not last_sent or (datetime.now() - last_sent) > _HEALTH_ALERT_MIN_INTERVAL:
                     print(f"  ⚠ All sources returned 0 — sending health alert")
                     send_health_alert(search.name, zero_sources, config)
-                    _health_alert_sent[search.id] = datetime.now()
+                    set_health_alert_sent(search.id)
                 else:
                     mins = int((datetime.now() - last_sent).total_seconds() / 60)
                     print(f"  ⚠ All sources returned 0 — health alert suppressed (sent {mins}m ago)")

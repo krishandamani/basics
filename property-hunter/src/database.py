@@ -103,6 +103,12 @@ def init_db() -> None:
                 PRIMARY KEY (property_id, search_id)
             )
         """)
+        _x(conn, """
+            CREATE TABLE IF NOT EXISTS health_alerts (
+                search_id TEXT PRIMARY KEY,
+                sent_at   TEXT
+            )
+        """)
 
 
 def is_new(property_id: str, search_id: str) -> bool:
@@ -294,6 +300,38 @@ def toggle_favourite(property_id: str) -> bool:
             (property_id,),
         ).fetchone()
         return bool(row["favourited"]) if row else False
+
+
+def get_health_alert_sent(search_id: str) -> Optional[datetime]:
+    """Return when the last health alert was sent for this search, or None."""
+    with _db() as conn:
+        row = _x(conn,
+            "SELECT sent_at FROM health_alerts WHERE search_id = ?",
+            (search_id,),
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            return datetime.fromisoformat(row["sent_at"])
+        except Exception:
+            return None
+
+
+def set_health_alert_sent(search_id: str) -> None:
+    """Record that a health alert was just sent for this search."""
+    now = datetime.now().isoformat()
+    with _db() as conn:
+        if _USE_PG:
+            _x(conn,
+                "INSERT INTO health_alerts (search_id, sent_at) VALUES (?, ?)"
+                " ON CONFLICT (search_id) DO UPDATE SET sent_at = EXCLUDED.sent_at",
+                (search_id, now),
+            )
+        else:
+            _x(conn,
+                "INSERT OR REPLACE INTO health_alerts (search_id, sent_at) VALUES (?, ?)",
+                (search_id, now),
+            )
 
 
 def hide_property(property_id: str) -> None:
