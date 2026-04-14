@@ -73,6 +73,11 @@ def _run_search_background() -> None:
             return
 
         run_cycle(config, searches)
+        # Surface any per-source Apify errors into the UI banner
+        from src.scheduler import _last_run_stats
+        errs = _last_run_stats.get("errors") or []
+        if errs:
+            _search_state["error"] = errs[0]
         _search_state["last_ran"] = datetime.now().strftime("%-d %b at %H:%M")
     except Exception as exc:
         _search_state["error"] = str(exc)
