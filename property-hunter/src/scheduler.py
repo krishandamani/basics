@@ -83,7 +83,7 @@ def _do_scrape(scraper_fn, search: Search, source_name: str):
         return search.id, source_name, [], msg
 
 
-def run_cycle(config: dict, searches: List[Search]) -> None:
+def run_cycle(config: dict, searches: List[Search], send_health_alerts: bool = False) -> None:
     """One full search cycle: scrape (parallel) → filter → deduplicate → enrich → email."""
     _last_run_stats.clear()
     backend = "apify" if _apify_configured() else "direct"
@@ -156,11 +156,13 @@ def run_cycle(config: dict, searches: List[Search]) -> None:
         print(f"  Scraped: {len(raw)}  |  zero sources: {zero_sources or 'none'}")
 
         # Health alert when every enabled source returned nothing.
-        # Only fires when Apify IS configured — without it, 0 results from
-        # cloud IPs is completely expected (sites block datacentre traffic).
-        # Rate-limited to once per 12h per search to survive restarts better.
+        # Only fires in daemon mode (send_health_alerts=True) — one-shot runs
+        # (GitHub Actions, web UI button) never send these because each run is
+        # a fresh process with no prior context; they'd fire every time.
         if zero_sources and len(zero_sources) == enabled_count:
-            if not _apify_configured():
+            if not send_health_alerts:
+                print(f"  ⚠ All sources returned 0 — health alert suppressed (one-shot mode)")
+            elif not _apify_configured():
                 print(f"  ⚠ All sources returned 0 — suppressed (APIFY_API_KEY not set)")
             else:
                 last_sent = get_health_alert_sent(search.id)
@@ -223,9 +225,9 @@ def start(config: dict, searches: List[Search]) -> None:
     print(f"\nProperty Hunter started — checking every {interval_hours} hour(s).")
     print("Press Ctrl+C to stop.\n")
 
-    run_cycle(config, searches)
+    run_cycle(config, searches, send_health_alerts=True)
 
-    schedule.every(interval_hours).hours.do(run_cycle, config=config, searches=searches)
+    schedule.every(interval_hours).hours.do(run_cycle, config=config, searches=searches, send_health_alerts=True)
 
     while True:
         schedule.run_pending()
