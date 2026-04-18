@@ -17,7 +17,6 @@ from urllib.parse import quote
 from ..models import Property, Search
 from .rightmove import _build_url as _rm_build_url
 from .zoopla import _build_url as _z_build_url
-from .onthemarket import _build_url as _otm_build_url
 
 _RIGHTMOVE_ACTOR = "dhrumil/rightmove-scraper"
 _ZOOPLA_ACTOR = "dhrumil/zoopla-scraper"
@@ -56,29 +55,58 @@ def _postcode(address: str) -> Optional[str]:
     return m.group() if m else None
 
 
-def _rm_fallback_url(search: Search) -> str:
-    """Build a Rightmove URL using plain searchLocation= (no typeahead API needed)."""
-    listing_type_path = "property-to-rent" if search.listing_type == "rent" else "property-for-sale"
-    params = [f"searchLocation={quote(search.location)}", "sortType=6"]
-    if search.min_bedrooms:
-        params.append(f"minBedrooms={search.min_bedrooms}")
-    if search.max_bedrooms:
-        params.append(f"maxBedrooms={search.max_bedrooms}")
-    if search.min_price:
-        params.append(f"minPrice={search.min_price}")
-    if search.max_price:
-        params.append(f"maxPrice={search.max_price}")
-    return f"https://www.rightmove.co.uk/{listing_type_path}/find.html?{'&'.join(params)}"
+def _rm_location_id_via_proxy(location: str) -> Optional[str]:
+    """Call Rightmove typeahead through Apify's residential proxy to bypass cloud IP blocks.
+    Returns a locationIdentifier like 'REGION^72526', or None on failure."""
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if not api_key:
+        return None
+    try:
+        import requests as req
+        proxies = {
+            "http":  f"http://groups-RESIDENTIAL:{api_key}@proxy.apify.com:8000",
+            "https": f"http://groups-RESIDENTIAL:{api_key}@proxy.apify.com:8000",
+        }
+        r = req.get(
+            "https://www.rightmove.co.uk/typeAhead/uknostreetphoto",
+            params={"query": location, "limit": 1},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-GB,en;q=0.9",
+            },
+            proxies=proxies,
+            timeout=15,
+        )
+        results = r.json().get("typeAheadLocations", [])
+        if results:
+            return results[0]["locationIdentifier"]
+    except Exception as exc:
+        print(f"  [Rightmove] Proxy typeahead failed: {exc}")
+    return None
 
 
 def scrape_rightmove(search: Search) -> List[Property]:
     """Scrape Rightmove via Apify (bypasses Akamai bot detection)."""
     url = search.rightmove_url or (_rm_build_url(search) if search.location else None)
+    if not url and search.location:
+        # Direct Rightmove API is blocked from cloud IPs — route through Apify residential proxy.
+        loc_id = _rm_location_id_via_proxy(search.location)
+        if loc_id:
+            # Build URL directly from the resolved locationIdentifier
+            listing_type_path = "property-to-rent" if search.listing_type == "rent" else "property-for-sale"
+            params = {"locationIdentifier": loc_id, "sortType": "6"}
+            if search.min_bedrooms: params["minBedrooms"] = str(search.min_bedrooms)
+            if search.max_bedrooms: params["maxBedrooms"] = str(search.max_bedrooms)
+            if search.min_price:    params["minPrice"]    = str(search.min_price)
+            if search.max_price:    params["maxPrice"]    = str(search.max_price)
+            qs = "&".join(f"{k}={v}" for k, v in params.items())
+            url = f"https://www.rightmove.co.uk/{listing_type_path}/find.html?{qs}"
+            print(f"  [Rightmove] Resolved via proxy: {loc_id} → {url}")
+        else:
+            print(f"  [Rightmove] Could not resolve location '{search.location}' — skipping")
+            return []
     if not url:
-        # Rightmove requires a locationIdentifier in the URL (e.g. REGION^72526).
-        # The typeahead API to get this is blocked on cloud IPs.
-        # Fix: add a rightmove_url to each search in config.yaml.
-        print(f"  [Rightmove] No valid URL — add rightmove_url to config.yaml for '{search.name}'")
         return []
 
     listing_type = "rent" if "to-rent" in url else "sale"
