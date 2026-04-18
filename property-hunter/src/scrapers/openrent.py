@@ -1,9 +1,11 @@
 """OpenRent scraper — direct landlord rentals, no agent fees.
 
 Builds the search URL automatically from search.location and criteria.
-Uses requests + BeautifulSoup (OpenRent is the simplest site to scrape).
+Uses requests + BeautifulSoup. Routes through Apify proxy on cloud (Railway)
+because OpenRent blocks datacenter IPs, same as other UK property sites.
 """
 
+import os
 import re
 from typing import List
 from urllib.parse import quote
@@ -35,6 +37,23 @@ def _build_url(search: Search) -> str:
     return "https://www.openrent.co.uk/properties-to-rent/?" + "&".join(params)
 
 
+def _get(url: str) -> requests.Response:
+    """Fetch URL, routing through Apify proxy if API key is set (cloud IPs are blocked)."""
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if api_key:
+        proxy = f"http://auto:{api_key}@proxy.apify.com:8000"
+        proxies = {"http": proxy, "https": proxy}
+        try:
+            resp = requests.get(url, headers=_HEADERS, proxies=proxies,
+                                timeout=20, verify=False)
+            if resp.status_code == 200:
+                return resp
+            print(f"  [OpenRent] Proxy returned {resp.status_code} — trying direct")
+        except Exception as exc:
+            print(f"  [OpenRent] Proxy failed ({exc}) — trying direct")
+    return requests.get(url, headers=_HEADERS, timeout=15)
+
+
 def scrape(search: Search) -> List[Property]:
     # OpenRent is rent-only — skip for sale searches
     if search.listing_type == "sale":
@@ -45,7 +64,7 @@ def scrape(search: Search) -> List[Property]:
         return []
 
     try:
-        resp = requests.get(url, headers=_HEADERS, timeout=15)
+        resp = _get(url)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
