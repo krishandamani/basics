@@ -112,7 +112,7 @@ def scrape_rightmove(search: Search) -> List[Property]:
     listing_type = "rent" if "to-rent" in url else "sale"
     client = _client()
     run = client.actor(_RIGHTMOVE_ACTOR).call(
-        run_input={"startUrls": [{"url": url}], "maxItems": 40},
+        run_input={"listUrls": [{"url": url}], "maxItems": 40},
         timeout_secs=300,
     )
     if not run:
