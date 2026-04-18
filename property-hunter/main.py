@@ -147,6 +147,54 @@ def cmd_recent() -> None:
         print()
 
 
+def cmd_build_urls(config: dict) -> None:
+    """Resolve Rightmove locationIdentifiers for every search and write rightmove_url
+    into config.yaml. Run this once locally (where Rightmove API isn't blocked)."""
+    from src.scrapers.rightmove import _build_url as rm_build_url
+    from src.models import Search
+
+    config_path = _config_path_writable()
+    searches_cfg = config.get("searches", [])
+    updated = 0
+
+    for s in searches_cfg:
+        if s.get("rightmove_url"):
+            print(f"  {s['name']}: already has rightmove_url, skipping")
+            continue
+
+        search = Search(
+            id=s["id"],
+            name=s.get("name", s["id"]),
+            listing_type=s.get("listing_type", "both"),
+            location=s.get("location", ""),
+            min_price=s.get("min_price"),
+            max_price=s.get("max_price"),
+            min_bedrooms=s.get("min_bedrooms"),
+            max_bedrooms=s.get("max_bedrooms"),
+        )
+
+        if not search.location:
+            print(f"  {s['name']}: no location — skipping")
+            continue
+
+        url = rm_build_url(search)
+        if url:
+            s["rightmove_url"] = url
+            updated += 1
+            print(f"  ✓ {s['name']}: {url}")
+        else:
+            print(f"  ✗ {s['name']}: could not resolve location '{search.location}'")
+
+    if updated:
+        config["searches"] = searches_cfg
+        with open(config_path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        print(f"\n  ✓ Wrote {updated} URL(s) to {config_path}")
+        print("  Now commit and push config.yaml so Railway and GitHub Actions use them.")
+    else:
+        print("\n  No URLs updated.")
+
+
 def cmd_add_search() -> None:
     """Mini wizard — add a single new search to the config file."""
     config_path = _config_path_writable()
@@ -228,6 +276,10 @@ def main():
 
     if command == "test-email":
         cmd_test_email(config)
+        return
+
+    if command == "build-urls":
+        cmd_build_urls(config)
         return
 
     if command == "recent":

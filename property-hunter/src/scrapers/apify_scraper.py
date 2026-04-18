@@ -74,11 +74,11 @@ def _rm_fallback_url(search: Search) -> str:
 def scrape_rightmove(search: Search) -> List[Property]:
     """Scrape Rightmove via Apify (bypasses Akamai bot detection)."""
     url = search.rightmove_url or (_rm_build_url(search) if search.location else None)
-    if not url and search.location:
-        # typeahead API was blocked (cloud datacenter IPs) — use plain location search
-        url = _rm_fallback_url(search)
-        print(f"  [Rightmove] locationId lookup failed, using fallback URL: {url}")
     if not url:
+        # Rightmove requires a locationIdentifier in the URL (e.g. REGION^72526).
+        # The typeahead API to get this is blocked on cloud IPs.
+        # Fix: add a rightmove_url to each search in config.yaml.
+        print(f"  [Rightmove] No valid URL — add rightmove_url to config.yaml for '{search.name}'")
         return []
 
     listing_type = "rent" if "to-rent" in url else "sale"
