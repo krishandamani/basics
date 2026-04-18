@@ -53,7 +53,6 @@ def _build_scraper_defs() -> list:
         from .scrapers import apify_scraper
         return [
             ("Rightmove",   "rightmove_url",   apify_scraper.scrape_rightmove),
-            ("Zoopla",      "zoopla_url",       apify_scraper.scrape_zoopla),
             ("OpenRent",    "openrent_url",     scrapers.openrent.scrape),
         ]
     # Local mode: direct scrapers + Playwright for premium agents (if available).

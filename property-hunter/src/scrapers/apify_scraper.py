@@ -56,33 +56,36 @@ def _postcode(address: str) -> Optional[str]:
 
 
 def _rm_location_id_via_proxy(location: str) -> Optional[str]:
-    """Call Rightmove typeahead through Apify's residential proxy to bypass cloud IP blocks.
-    Returns a locationIdentifier like 'REGION^72526', or None on failure."""
+    """Call Rightmove typeahead through Apify's proxy to bypass cloud IP blocks."""
     api_key = os.environ.get("APIFY_API_KEY", "")
     if not api_key:
         return None
-    try:
-        import requests as req
-        proxies = {
-            "http":  f"http://groups-RESIDENTIAL:{api_key}@proxy.apify.com:8000",
-            "https": f"http://groups-RESIDENTIAL:{api_key}@proxy.apify.com:8000",
-        }
-        r = req.get(
-            "https://www.rightmove.co.uk/typeAhead/uknostreetphoto",
-            params={"query": location, "limit": 1},
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept-Language": "en-GB,en;q=0.9",
-            },
-            proxies=proxies,
-            timeout=15,
-        )
-        results = r.json().get("typeAheadLocations", [])
-        if results:
-            return results[0]["locationIdentifier"]
-    except Exception as exc:
-        print(f"  [Rightmove] Proxy typeahead failed: {exc}")
+    import requests as req
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-GB,en;q=0.9",
+    }
+    # Try residential first, fall back to auto (datacenter)
+    for proxy_group in ("groups-RESIDENTIAL", "auto"):
+        proxy_url = f"http://{proxy_group}:{api_key}@proxy.apify.com:8000"
+        proxies = {"http": proxy_url, "https": proxy_url}
+        try:
+            r = req.get(
+                "https://www.rightmove.co.uk/typeAhead/uknostreetphoto",
+                params={"query": location, "limit": 1},
+                headers=headers,
+                proxies=proxies,
+                timeout=15,
+                verify=False,
+            )
+            results = r.json().get("typeAheadLocations", [])
+            if results:
+                print(f"  [Rightmove] Proxy ({proxy_group}) resolved '{location}' → {results[0]['locationIdentifier']}")
+                return results[0]["locationIdentifier"]
+            print(f"  [Rightmove] Proxy ({proxy_group}) returned empty for '{location}' (status {r.status_code})")
+        except Exception as exc:
+            print(f"  [Rightmove] Proxy ({proxy_group}) failed: {exc}")
     return None
 
 
