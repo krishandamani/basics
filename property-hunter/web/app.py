@@ -297,6 +297,49 @@ def api_diagnostics():
     })
 
 
+@app.route("/api/test-rightmove")
+def api_test_rightmove():
+    """Run the Rightmove Apify actor against one URL and return raw output.
+
+    Use this to verify the actor works and inspect what fields it returns.
+    Takes 60-120 seconds — call from browser or: curl <host>/api/test-rightmove
+    """
+    import os
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if not api_key:
+        return jsonify({"error": "APIFY_API_KEY not set"}), 400
+
+    # Hitchin for-sale: known good URL with hardcoded locationIdentifier
+    test_url = (
+        "https://www.rightmove.co.uk/property-for-sale/find.html"
+        "?locationIdentifier=REGION%5E643&sortType=6&minBedrooms=3"
+        "&minPrice=900000&maxPrice=1300000"
+    )
+
+    try:
+        from apify_client import ApifyClient
+        from src.scrapers.apify_scraper import _RIGHTMOVE_ACTOR
+        client = ApifyClient(api_key)
+        run = client.actor(_RIGHTMOVE_ACTOR).call(
+            run_input={"startUrls": [{"url": test_url}], "maxItems": 3},
+            timeout_secs=180,
+        )
+        if not run:
+            return jsonify({"error": "Actor returned no run object — actor may not exist or key is wrong"}), 500
+
+        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+        return jsonify({
+            "actor": _RIGHTMOVE_ACTOR,
+            "test_url": test_url,
+            "run_id": run.get("id"),
+            "run_status": run.get("status"),
+            "item_count": len(items),
+            "items": items[:3],
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

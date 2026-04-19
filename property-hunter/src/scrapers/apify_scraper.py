@@ -4,9 +4,9 @@ Handles anti-bot protection via Apify residential proxies.
 Requires APIFY_API_KEY environment variable to be set.
 
 Actors used:
-  Rightmove:    dhrumil/rightmove-scraper
-  Zoopla:       dhrumil/zoopla-scraper
-  OnTheMarket:  dhrumil/onthemarket-scraper
+  Rightmove:    epctex/rightmove-scraper  (uses startUrls, free tier available)
+  Zoopla:       dhrumil/zoopla-scraper    (paid — disabled)
+  OnTheMarket:  dhrumil/onthemarket-scraper (paid — disabled)
 """
 
 import os
@@ -18,7 +18,7 @@ from ..models import Property, Search
 from .rightmove import _build_url as _rm_build_url
 from .zoopla import _build_url as _z_build_url
 
-_RIGHTMOVE_ACTOR = "dhrumil/rightmove-scraper"
+_RIGHTMOVE_ACTOR = "epctex/rightmove-scraper"
 _ZOOPLA_ACTOR = "dhrumil/zoopla-scraper"
 _OTM_ACTOR = "dhrumil/onthemarket-scraper"
 
@@ -115,7 +115,7 @@ def scrape_rightmove(search: Search) -> List[Property]:
     listing_type = "rent" if "to-rent" in url else "sale"
     client = _client()
     run = client.actor(_RIGHTMOVE_ACTOR).call(
-        run_input={"listUrls": [{"url": url}], "maxItems": 40},
+        run_input={"startUrls": [{"url": url}], "maxItems": 40},
         timeout_secs=300,
     )
     if not run:
@@ -124,27 +124,43 @@ def scrape_rightmove(search: Search) -> List[Property]:
     results: List[Property] = []
     for item in client.dataset(run["defaultDatasetId"]).iterate_items():
         try:
-            prop_url = str(item.get("url", ""))
+            # epctex field names with dhrumil-style fallbacks so either actor works
+            prop_url = str(item.get("propertyUrl", item.get("url", "")))
             if not prop_url:
                 continue
-            lid = str(item.get("listingId", ""))
+            lid = str(item.get("id", item.get("listingId", "")))
             prop_id = f"rightmove_{lid}" if lid else f"rightmove_{abs(hash(prop_url))}"
             bedrooms = int(item.get("bedrooms", 0) or 0)
-            prop_type = str(item.get("propertyType", ""))
-            address = str(item.get("address", ""))
+            prop_type = str(item.get("propertySubType",
+                              item.get("propertyType",
+                              item.get("propertyTypeFullDescription", ""))))
+            address = str(item.get("displayAddress", item.get("address", "")))
+            price_raw = item.get("priceAmount", item.get("price", 0))
+
+            # imageUrl is a string in epctex, a list in dhrumil
+            img_raw = item.get("imageUrl", item.get("images"))
+            if isinstance(img_raw, str):
+                image_url = img_raw or None
+            else:
+                image_url = _extract_image(img_raw)
+
+            agent_raw = item.get("agentName", "")
+            if not agent_raw and isinstance(item.get("agent"), dict):
+                agent_raw = item["agent"].get("name", "") or ""
+
             results.append(Property(
                 id=prop_id,
                 source="rightmove",
                 listing_type=listing_type,
                 url=prop_url,
-                price=_extract_price(item.get("price", 0)),
+                price=_extract_price(price_raw),
                 bedrooms=bedrooms,
                 property_type=prop_type,
                 address=address,
-                title=str(item.get("propertyTitle", "")) or f"{bedrooms} bed {prop_type}",
+                title=str(item.get("title", item.get("propertyTitle", ""))) or f"{bedrooms} bed {prop_type}",
                 postcode=_postcode(address),
-                image_url=_extract_image(item.get("images")),
-                agent_name=str(item.get("agentName", "")) or None,
+                image_url=image_url,
+                agent_name=str(agent_raw) or None,
             ))
         except Exception:
             continue
