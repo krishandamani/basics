@@ -299,17 +299,16 @@ def api_diagnostics():
 
 @app.route("/api/test-rightmove")
 def api_test_rightmove():
-    """Run the Rightmove Apify actor against one URL and return raw output.
+    """Test the Rightmove proxy scraper against one URL and return raw output.
 
-    Use this to verify the actor works and inspect what fields it returns.
-    Takes 60-120 seconds — call from browser or: curl <host>/api/test-rightmove
+    No Apify actor used — fetches HTML via proxy and parses __NEXT_DATA__ JSON.
+    Call from browser or: curl <host>/api/test-rightmove  (takes 5-15 seconds)
     """
     import os
     api_key = os.environ.get("APIFY_API_KEY", "")
     if not api_key:
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
 
-    # Hitchin for-sale: known good URL with hardcoded locationIdentifier
     test_url = (
         "https://www.rightmove.co.uk/property-for-sale/find.html"
         "?locationIdentifier=REGION%5E643&sortType=6&minBedrooms=3"
@@ -317,24 +316,19 @@ def api_test_rightmove():
     )
 
     try:
-        from apify_client import ApifyClient
-        from src.scrapers.apify_scraper import _RIGHTMOVE_ACTOR
-        client = ApifyClient(api_key)
-        run = client.actor(_RIGHTMOVE_ACTOR).call(
-            run_input={"startUrls": [{"url": test_url}], "maxItems": 3},
-            timeout_secs=180,
-        )
-        if not run:
-            return jsonify({"error": "Actor returned no run object — actor may not exist or key is wrong"}), 500
+        from src.scrapers.apify_scraper import _proxy_get, _looks_valid, _parse_rightmove_html
 
-        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+        resp = _proxy_get(test_url, timeout=20)
+        valid = _looks_valid(resp.text)
+        props = _parse_rightmove_html(resp.text) if valid else []
+
         return jsonify({
-            "actor": _RIGHTMOVE_ACTOR,
             "test_url": test_url,
-            "run_id": run.get("id"),
-            "run_status": run.get("status"),
-            "item_count": len(items),
-            "items": items[:3],
+            "http_status": resp.status_code,
+            "page_looks_valid": valid,
+            "properties_parsed": len(props),
+            "first_3_raw": props[:3],
+            "html_snippet": resp.text[2000:3000] if not valid else None,
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500

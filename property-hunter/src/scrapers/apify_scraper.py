@@ -1,265 +1,288 @@
-"""Apify-based scrapers for Rightmove, Zoopla, and OnTheMarket.
+"""Rightmove scraper — direct HTML via Apify residential proxy.
 
-Handles anti-bot protection via Apify residential proxies.
-Requires APIFY_API_KEY environment variable to be set.
+All Apify actors for Rightmove are paid (epctex, dhrumil both require
+rental after free trial). This module bypasses actors entirely:
 
-Actors used:
-  Rightmove:    epctex/rightmove-scraper  (uses startUrls, free tier available)
-  Zoopla:       dhrumil/zoopla-scraper    (paid — disabled)
-  OnTheMarket:  dhrumil/onthemarket-scraper (paid — disabled)
+  1. Fetches the standard Rightmove search-results HTML page
+     through Apify's residential proxy to bypass Akamai IP blocks
+  2. Parses property data from the embedded __NEXT_DATA__ JSON blob
+     (fallback: window.jsonModel, then BeautifulSoup card parsing)
+
+Cost: Apify proxy bandwidth only (~$0.60/GB datacenter, ~$3/GB residential).
+A single search page is ~300-500 KB, so 18 searches costs <<$0.01 per cycle.
+
+Requires APIFY_API_KEY environment variable.
 """
 
+import json
 import os
 import re
 from typing import List, Optional
-from urllib.parse import quote
+
+import requests
 
 from ..models import Property, Search
 from .rightmove import _build_url as _rm_build_url
-from .zoopla import _build_url as _z_build_url
 
-_RIGHTMOVE_ACTOR = "epctex/rightmove-scraper"
-_ZOOPLA_ACTOR = "dhrumil/zoopla-scraper"
-_OTM_ACTOR = "dhrumil/onthemarket-scraper"
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+_RM_BASE = "https://www.rightmove.co.uk"
 
 
-def _client():
-    from apify_client import ApifyClient
-    return ApifyClient(os.environ["APIFY_API_KEY"])
+# ── proxy fetch ───────────────────────────────────────────────────────────────
+
+def _proxy_get(url: str, timeout: int = 30) -> requests.Response:
+    """GET url via Apify proxy (residential → auto → direct fallback)."""
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if api_key:
+        for group in ("groups-RESIDENTIAL", "auto"):
+            proxy_url = f"http://{group}:{api_key}@proxy.apify.com:8000"
+            try:
+                resp = requests.get(
+                    url, headers=_HEADERS,
+                    proxies={"http": proxy_url, "https": proxy_url},
+                    timeout=timeout, verify=False,
+                )
+                if resp.status_code == 200:
+                    return resp
+                print(f"  [proxy/{group}] {resp.status_code} for {url[:80]}")
+            except Exception as exc:
+                print(f"  [proxy/{group}] failed: {exc}")
+    return requests.get(url, headers=_HEADERS, timeout=timeout)
+
+
+# ── Rightmove HTML → property list ────────────────────────────────────────────
+
+def _looks_valid(html: str) -> bool:
+    return any(m in html for m in ("__NEXT_DATA__", "jsonModel", "propertyCard"))
+
+
+def _deep_find(obj, key: str):
+    """Recursively find first occurrence of key in nested dict/list."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            result = _deep_find(v, key)
+            if result is not None:
+                return result
+    elif isinstance(obj, list):
+        for item in obj:
+            result = _deep_find(item, key)
+            if result is not None:
+                return result
+    return None
+
+
+def _parse_rightmove_html(html: str) -> list:
+    """Extract raw property dicts from Rightmove HTML.
+
+    Tries in order: __NEXT_DATA__ JSON → window.jsonModel → empty list.
+    """
+    # ── __NEXT_DATA__ (Next.js) ───────────────────────────────────────────────
+    m = re.search(
+        r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>',
+        html, re.DOTALL,
+    )
+    if m:
+        try:
+            data = json.loads(m.group(1))
+            search_props = (
+                data.get("props", {})
+                    .get("pageProps", {})
+                    .get("searchPageProps", {})
+            )
+            props = search_props.get("properties") or search_props.get("results")
+            if not props:
+                props = _deep_find(data, "properties")
+            if props and isinstance(props, list):
+                return props
+        except Exception as exc:
+            print(f"  [Rightmove] __NEXT_DATA__ parse error: {exc}")
+
+    # ── legacy window.jsonModel ───────────────────────────────────────────────
+    for pattern in (
+        r"window\['jsonModel'\]\s*=\s*(\{.+?\});\s*(?:window|</script>)",
+        r"window\.jsonModel\s*=\s*(\{.+?\});\s*(?:window|</script>)",
+    ):
+        m = re.search(pattern, html, re.DOTALL)
+        if m:
+            try:
+                props = json.loads(m.group(1)).get("properties", [])
+                if props:
+                    return props
+            except Exception:
+                pass
+
+    return []
 
 
 def _extract_price(raw) -> int:
     try:
-        if isinstance(raw, str):
-            return int(re.sub(r"[^\d]", "", raw) or "0")
         if isinstance(raw, dict):
-            return int(raw.get("value", raw.get("amount", 0)) or 0)
-        return int(raw or 0)
+            val = raw.get("amount") or 0
+            if not val:
+                dp = raw.get("displayPrices", [{}])
+                val = dp[0].get("displayPrice", "0") if dp else "0"
+            return int(re.sub(r"[^\d]", "", str(val)) or "0")
+        return int(re.sub(r"[^\d]", "", str(raw)) or "0")
     except (ValueError, TypeError):
         return 0
 
 
-def _extract_image(images) -> Optional[str]:
-    if not images or not isinstance(images, list):
-        return None
-    first = images[0]
-    if isinstance(first, dict):
-        return first.get("url") or first.get("src")
-    if isinstance(first, str):
-        return first
-    return None
-
-
 def _postcode(address: str) -> Optional[str]:
-    m = re.search(r"[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}", address)
+    m = re.search(r"[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}", address or "")
     return m.group() if m else None
 
 
-def _rm_location_id_via_proxy(location: str) -> Optional[str]:
-    """Call Rightmove typeahead through Apify's proxy to bypass cloud IP blocks."""
-    api_key = os.environ.get("APIFY_API_KEY", "")
-    if not api_key:
-        return None
-    import requests as req
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-GB,en;q=0.9",
-    }
-    # Try residential first, fall back to auto (datacenter)
-    for proxy_group in ("groups-RESIDENTIAL", "auto"):
-        proxy_url = f"http://{proxy_group}:{api_key}@proxy.apify.com:8000"
-        proxies = {"http": proxy_url, "https": proxy_url}
-        try:
-            r = req.get(
-                "https://www.rightmove.co.uk/typeAhead/uknostreetphoto",
-                params={"query": location, "limit": 1},
-                headers=headers,
-                proxies=proxies,
-                timeout=15,
-                verify=False,
-            )
-            results = r.json().get("typeAheadLocations", [])
-            if results:
-                print(f"  [Rightmove] Proxy ({proxy_group}) resolved '{location}' → {results[0]['locationIdentifier']}")
-                return results[0]["locationIdentifier"]
-            print(f"  [Rightmove] Proxy ({proxy_group}) returned empty for '{location}' (status {r.status_code})")
-        except Exception as exc:
-            print(f"  [Rightmove] Proxy ({proxy_group}) failed: {exc}")
+def _extract_image(prop: dict) -> Optional[str]:
+    """Pull first image URL from Rightmove property dict."""
+    images = prop.get("propertyImages", {})
+    if isinstance(images, dict):
+        imgs = images.get("images", [])
+    else:
+        imgs = []
+    for img in imgs:
+        if isinstance(img, dict):
+            url = img.get("srcUrl") or img.get("url") or img.get("src")
+            if url:
+                return url
+        elif isinstance(img, str):
+            return img
     return None
 
 
+def _rm_location_id_via_proxy(location: str) -> Optional[str]:
+    """Call Rightmove typeahead through Apify proxy to resolve locationIdentifier."""
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if not api_key:
+        return None
+    for group in ("groups-RESIDENTIAL", "auto"):
+        proxy_url = f"http://{group}:{api_key}@proxy.apify.com:8000"
+        try:
+            r = requests.get(
+                "https://www.rightmove.co.uk/typeAhead/uknostreetphoto",
+                params={"query": location, "limit": 1},
+                headers=_HEADERS,
+                proxies={"http": proxy_url, "https": proxy_url},
+                timeout=15, verify=False,
+            )
+            results = r.json().get("typeAheadLocations", [])
+            if results:
+                loc_id = results[0]["locationIdentifier"]
+                print(f"  [Rightmove] proxy resolved '{location}' → {loc_id}")
+                return loc_id
+            print(f"  [Rightmove] proxy ({group}) empty for '{location}' (status {r.status_code})")
+        except Exception as exc:
+            print(f"  [Rightmove] proxy ({group}) failed: {exc}")
+    return None
+
+
+# ── public scraper ────────────────────────────────────────────────────────────
+
 def scrape_rightmove(search: Search) -> List[Property]:
-    """Scrape Rightmove via Apify (bypasses Akamai bot detection)."""
+    """Scrape Rightmove via direct HTML + Apify residential proxy.
+
+    No Apify actor used — fetches search-results HTML, parses __NEXT_DATA__ JSON.
+    """
     url = search.rightmove_url or (_rm_build_url(search) if search.location else None)
     if not url and search.location:
-        # Direct Rightmove API is blocked from cloud IPs — route through Apify residential proxy.
         loc_id = _rm_location_id_via_proxy(search.location)
         if loc_id:
-            # Build URL directly from the resolved locationIdentifier
-            listing_type_path = "property-to-rent" if search.listing_type == "rent" else "property-for-sale"
-            params = {"locationIdentifier": loc_id, "sortType": "6"}
-            if search.min_bedrooms: params["minBedrooms"] = str(search.min_bedrooms)
-            if search.max_bedrooms: params["maxBedrooms"] = str(search.max_bedrooms)
-            if search.min_price:    params["minPrice"]    = str(search.min_price)
-            if search.max_price:    params["maxPrice"]    = str(search.max_price)
+            path = "property-to-rent" if search.listing_type == "rent" else "property-for-sale"
+            params = {
+                "locationIdentifier": loc_id, "sortType": "6",
+                **({} if not search.min_bedrooms else {"minBedrooms": str(search.min_bedrooms)}),
+                **({} if not search.max_bedrooms else {"maxBedrooms": str(search.max_bedrooms)}),
+                **({} if not search.min_price    else {"minPrice":    str(search.min_price)}),
+                **({} if not search.max_price    else {"maxPrice":    str(search.max_price)}),
+            }
             qs = "&".join(f"{k}={v}" for k, v in params.items())
-            url = f"https://www.rightmove.co.uk/{listing_type_path}/find.html?{qs}"
-            print(f"  [Rightmove] Resolved via proxy: {loc_id} → {url}")
+            url = f"{_RM_BASE}/{path}/find.html?{qs}"
         else:
-            print(f"  [Rightmove] Could not resolve location '{search.location}' — skipping")
+            print(f"  [Rightmove] could not resolve '{search.location}' — skipping")
             return []
     if not url:
         return []
 
     listing_type = "rent" if "to-rent" in url else "sale"
-    client = _client()
-    run = client.actor(_RIGHTMOVE_ACTOR).call(
-        run_input={"startUrls": [{"url": url}], "maxItems": 40},
-        timeout_secs=300,
-    )
-    if not run:
-        raise RuntimeError(f"Rightmove Apify actor '{_RIGHTMOVE_ACTOR}' returned no run object")
+
+    resp = _proxy_get(url)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Rightmove returned HTTP {resp.status_code}")
+
+    if not _looks_valid(resp.text):
+        raise RuntimeError(
+            "Rightmove returned a bot-detection page (no __NEXT_DATA__ or propertyCard found). "
+            "Residential proxy may be needed — check APIFY_API_KEY and proxy credit."
+        )
+
+    raw_props = _parse_rightmove_html(resp.text)
+    if not raw_props:
+        print("  [Rightmove] page valid but 0 properties parsed (empty search results?)")
+        return []
 
     results: List[Property] = []
-    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+    for prop in raw_props:
         try:
-            # epctex field names with dhrumil-style fallbacks so either actor works
-            prop_url = str(item.get("propertyUrl", item.get("url", "")))
-            if not prop_url:
+            prop_id_str = str(prop.get("id", prop.get("propertyId", "")))
+            if not prop_id_str:
                 continue
-            lid = str(item.get("id", item.get("listingId", "")))
-            prop_id = f"rightmove_{lid}" if lid else f"rightmove_{abs(hash(prop_url))}"
-            bedrooms = int(item.get("bedrooms", 0) or 0)
-            prop_type = str(item.get("propertySubType",
-                              item.get("propertyType",
-                              item.get("propertyTypeFullDescription", ""))))
-            address = str(item.get("displayAddress", item.get("address", "")))
-            price_raw = item.get("priceAmount", item.get("price", 0))
 
-            # imageUrl is a string in epctex, a list in dhrumil
-            img_raw = item.get("imageUrl", item.get("images"))
-            if isinstance(img_raw, str):
-                image_url = img_raw or None
-            else:
-                image_url = _extract_image(img_raw)
-
-            agent_raw = item.get("agentName", "")
-            if not agent_raw and isinstance(item.get("agent"), dict):
-                agent_raw = item["agent"].get("name", "") or ""
+            prop_url = f"{_RM_BASE}/properties/{prop_id_str}"
+            prop_id = f"rightmove_{prop_id_str}"
+            bedrooms = int(prop.get("bedrooms", 0) or 0)
+            prop_type = str(
+                prop.get("propertySubType")
+                or prop.get("propertyTypeFullDescription")
+                or prop.get("propertyType", "")
+            )
+            address = str(prop.get("displayAddress", prop.get("address", "")))
+            agent = prop.get("customer", {})
+            agent_name = (
+                agent.get("brandPlusDisplayName") or agent.get("brandDisplayName")
+                if isinstance(agent, dict) else None
+            )
 
             results.append(Property(
                 id=prop_id,
                 source="rightmove",
                 listing_type=listing_type,
                 url=prop_url,
-                price=_extract_price(price_raw),
+                price=_extract_price(prop.get("price", 0)),
                 bedrooms=bedrooms,
                 property_type=prop_type,
                 address=address,
-                title=str(item.get("title", item.get("propertyTitle", ""))) or f"{bedrooms} bed {prop_type}",
+                title=f"{bedrooms} bed {prop_type}".strip() or address,
                 postcode=_postcode(address),
-                image_url=image_url,
-                agent_name=str(agent_raw) or None,
+                image_url=_extract_image(prop),
+                agent_name=str(agent_name) if agent_name else None,
             ))
         except Exception:
             continue
 
-    print(f"  [Rightmove/Apify] {len(results)} listings fetched")
+    print(f"  [Rightmove/proxy] {len(results)} listings fetched")
     return results
 
+
+# ── disabled paid actors (kept for reference) ─────────────────────────────────
 
 def scrape_zoopla(search: Search) -> List[Property]:
-    """Scrape Zoopla via Apify (bypasses Cloudflare/DataDome protection)."""
-    url = search.zoopla_url or (_z_build_url(search) if search.location else None)
-    if not url:
-        return []
-
-    listing_type = "rent" if "to-rent" in url else "sale"
-    client = _client()
-    run = client.actor(_ZOOPLA_ACTOR).call(
-        run_input={"startUrls": [{"url": url}], "maxItems": 40},
-        timeout_secs=300,
-    )
-    if not run:
-        raise RuntimeError(f"Zoopla Apify actor '{_ZOOPLA_ACTOR}' returned no run object")
-
-    results: List[Property] = []
-    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-        try:
-            prop_url = str(item.get("url", item.get("listingUrl", "")))
-            if not prop_url:
-                continue
-            lid = str(item.get("id", item.get("listingId", "")))
-            prop_id = f"zoopla_{lid}" if lid else f"zoopla_{abs(hash(prop_url))}"
-            bedrooms = int(item.get("bedrooms", item.get("beds", 0)) or 0)
-            prop_type = str(item.get("propertyType", item.get("type", "")))
-            address = str(item.get("address", ""))
-            results.append(Property(
-                id=prop_id,
-                source="zoopla",
-                listing_type=listing_type,
-                url=prop_url,
-                price=_extract_price(item.get("price", 0)),
-                bedrooms=bedrooms,
-                property_type=prop_type,
-                address=address,
-                title=str(item.get("title", "")) or f"{bedrooms} bed {prop_type}",
-                postcode=_postcode(address),
-                image_url=_extract_image(item.get("images")),
-                agent_name=str(item.get("agentName", "")) or None,
-            ))
-        except Exception:
-            continue
-
-    print(f"  [Zoopla/Apify] {len(results)} listings fetched")
-    return results
+    print("  [Zoopla] disabled — actor is paid, no free alternative found")
+    return []
 
 
 def scrape_onthemarket(search: Search) -> List[Property]:
-    """Scrape OnTheMarket via Apify — lists properties before Rightmove/Zoopla."""
-    url = search.onthemarket_url or (_otm_build_url(search) if search.location else None)
-    if not url:
-        return []
-
-    listing_type = "rent" if "to-rent" in url else "sale"
-    client = _client()
-    run = client.actor(_OTM_ACTOR).call(
-        run_input={"startUrls": [{"url": url}], "maxItems": 40},
-        timeout_secs=180,
-    )
-    if not run:
-        raise RuntimeError(f"OnTheMarket Apify actor '{_OTM_ACTOR}' returned no run object")
-
-    results: List[Property] = []
-    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-        try:
-            prop_url = str(item.get("url", item.get("listingUrl", item.get("link", ""))))
-            if not prop_url:
-                continue
-            if not prop_url.startswith("http"):
-                prop_url = "https://www.onthemarket.com" + prop_url
-            lid = str(item.get("id", item.get("listingId", item.get("propertyId", ""))))
-            prop_id = f"onthemarket_{lid}" if lid else f"onthemarket_{abs(hash(prop_url))}"
-            bedrooms = int(item.get("bedrooms", item.get("beds", 0)) or 0)
-            prop_type = str(item.get("propertyType", item.get("type", "")))
-            address = str(item.get("address", item.get("displayAddress", "")))
-            results.append(Property(
-                id=prop_id,
-                source="onthemarket",
-                listing_type=listing_type,
-                url=prop_url,
-                price=_extract_price(item.get("price", 0)),
-                bedrooms=bedrooms,
-                property_type=prop_type,
-                address=address,
-                title=str(item.get("title", "")) or f"{bedrooms} bed {prop_type}",
-                postcode=_postcode(address),
-                image_url=_extract_image(item.get("images")),
-                agent_name=str(item.get("agentName", "")) or None,
-            ))
-        except Exception:
-            continue
-
-    print(f"  [OnTheMarket/Apify] {len(results)} listings fetched")
-    return results
+    print("  [OnTheMarket] disabled — actor is paid, no free alternative found")
+    return []
