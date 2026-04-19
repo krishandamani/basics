@@ -251,7 +251,9 @@ def scrape_rightmove(search: Search) -> List[Property]:
             address = str(prop.get("displayAddress", prop.get("address", "")))
             agent = prop.get("customer", {})
             agent_name = (
-                agent.get("brandPlusDisplayName") or agent.get("brandDisplayName")
+                agent.get("branchDisplayName")
+                or agent.get("brandTradingName")
+                or agent.get("brandPlusDisplayName")
                 if isinstance(agent, dict) else None
             )
 
