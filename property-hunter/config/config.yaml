@@ -39,6 +39,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E643&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: st-albans-sale
     name: "St Albans — For Sale"
@@ -47,6 +48,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E1244&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: welwyn-sale
     name: "Welwyn Garden City — For Sale"
@@ -55,6 +57,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E1419&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: cuffley-sale
     name: "Cuffley — For Sale"
@@ -63,6 +66,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E7674&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: amersham-sale
     name: "Amersham — For Sale"
@@ -71,6 +75,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E36&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: northwood-sale
     name: "Northwood — For Sale"
@@ -79,6 +84,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E1017&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: pinner-sale
     name: "Pinner — For Sale"
@@ -87,6 +93,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E1070&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: bushey-sale
     name: "Bushey — For Sale"
@@ -95,6 +102,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=STATION%5E1631&radius=1.0&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   - id: croxley-sale
     name: "Croxley Green — For Sale"
@@ -103,6 +111,7 @@ searches:
     min_price: 900000
     max_price: 1300000
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E7620&sortType=6&minBedrooms=3&minPrice=900000&maxPrice=1300000"
 
   # ── FOR RENT (£1,800–£2,600/month, 3+ beds) ─────────────────────────────────
 
@@ -113,6 +122,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E643&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: st-albans-rent
     name: "St Albans — For Rent"
@@ -121,6 +131,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E1244&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: welwyn-rent
     name: "Welwyn Garden City — For Rent"
@@ -129,6 +140,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E1419&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: cuffley-rent
     name: "Cuffley — For Rent"
@@ -137,6 +149,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E7674&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: amersham-rent
     name: "Amersham — For Rent"
@@ -145,6 +158,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E36&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: northwood-rent
     name: "Northwood — For Rent"
@@ -153,6 +167,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E1017&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: pinner-rent
     name: "Pinner — For Rent"
@@ -161,6 +176,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E1070&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: bushey-rent
     name: "Bushey — For Rent"
@@ -169,6 +185,7 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=STATION%5E1631&radius=1.0&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
 
   - id: croxley-rent
     name: "Croxley Green — For Rent"
@@ -177,3 +194,4 @@ searches:
     min_price: 1800
     max_price: 2600
     min_bedrooms: 3
+    rightmove_url: "https://www.rightmove.co.uk/property-to-rent/find.html?locationIdentifier=REGION%5E7620&sortType=6&minBedrooms=3&minPrice=1800&maxPrice=2600"
