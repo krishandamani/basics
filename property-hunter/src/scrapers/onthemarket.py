@@ -73,11 +73,22 @@ def _get(url: str, timeout: int = 30) -> requests.Response:
     return requests.get(url, headers=_HEADERS, timeout=timeout)
 
 
+_PROPERTY_KEYS = {
+    "id", "listingId", "propertyId", "guid",
+    "price", "priceInfo", "displayPrice",
+    "bedrooms", "beds", "numBedrooms",
+    "propertyType", "type", "subType",
+    "address", "displayAddress",
+    "detailUrl", "url", "href",
+}
+
+
 def _find_listings(obj, depth=0):
-    if depth > 7:
+    """Recursively find a list of property dicts regardless of exact field names."""
+    if depth > 8:
         return []
-    if isinstance(obj, list) and obj and isinstance(obj[0], dict):
-        if any(k in obj[0] for k in ("id", "price", "bedrooms", "propertyType")):
+    if isinstance(obj, list) and len(obj) >= 1 and isinstance(obj[0], dict):
+        if sum(1 for k in obj[0] if k in _PROPERTY_KEYS) >= 2:
             return obj
     if isinstance(obj, dict):
         for v in obj.values():
@@ -146,9 +157,20 @@ def scrape(search: Search) -> List[Property]:
                 next_data = json.loads(m.group(1))
                 page_props = next_data.get("props", {}).get("pageProps", {})
                 results_obj = page_props.get("results") or {}
+                # Try every plausible OTM path before falling back to deep search
                 listings_raw = (
-                    results_obj.get("results", []) if isinstance(results_obj, dict) else []
-                ) or page_props.get("properties", []) or page_props.get("listings", []) or _find_listings(page_props)
+                    (results_obj.get("results", []) if isinstance(results_obj, dict) else [])
+                    or (results_obj.get("properties", []) if isinstance(results_obj, dict) else [])
+                    or page_props.get("properties", [])
+                    or page_props.get("listings", [])
+                    or page_props.get("propertiesForSale", [])
+                    or page_props.get("propertiesForRent", [])
+                    or (page_props.get("data") or {}).get("properties", [])
+                    or (page_props.get("data") or {}).get("results", [])
+                    or (page_props.get("initialData") or {}).get("properties", [])
+                    or (page_props.get("searchResults") or {}).get("properties", [])
+                    or _find_listings(page_props)
+                )
             except json.JSONDecodeError:
                 pass
 

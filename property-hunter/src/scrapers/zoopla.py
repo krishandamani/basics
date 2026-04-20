@@ -1,7 +1,8 @@
-"""Zoopla scraper — direct HTML via Apify residential proxy.
+"""PrimeLocation scraper (Zoopla sister site — identical platform, same listings).
 
-Parses property data from the embedded __NEXT_DATA__ JSON blob.
-No Playwright required — residential proxy bypasses Cloudflare IP blocks.
+Zoopla itself returns 403 even with residential proxy due to aggressive Cloudflare.
+PrimeLocation shares the same Next.js codebase and __NEXT_DATA__ structure but
+has weaker bot protection.  Cost: Apify proxy bandwidth only.
 """
 
 import json
@@ -31,7 +32,11 @@ def _location_slug(location: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", location.lower()).strip("-")
 
 
+_PL_BASE = "https://www.primelocation.com"
+
+
 def _build_url(search: Search) -> str:
+    """Build a PrimeLocation search URL (same params as Zoopla)."""
     slug = _location_slug(search.location)
     listing_type = search.listing_type if search.listing_type != "both" else "rent"
     path = "to-rent" if listing_type == "rent" else "for-sale"
@@ -45,7 +50,7 @@ def _build_url(search: Search) -> str:
     if search.max_price:
         params.append(f"price_max={search.max_price}")
     params.append("results_sort=newest_listings")
-    return f"https://www.zoopla.co.uk/{path}/property/{slug}/?{'&'.join(params)}"
+    return f"{_PL_BASE}/{path}/property/{slug}/?{'&'.join(params)}"
 
 
 def _get(url: str, timeout: int = 30) -> requests.Response:
@@ -113,12 +118,12 @@ def scrape(search: Search) -> List[Property]:
             resp.text, re.DOTALL,
         )
         if not m:
-            print("  [Zoopla] No __NEXT_DATA__ found — page may be blocked by Cloudflare")
+            print("  [PrimeLocation] No __NEXT_DATA__ found — page may be blocked")
             return []
 
         listings_raw = _extract_listings(json.loads(m.group(1)))
         if not listings_raw:
-            print("  [Zoopla] 0 listings in __NEXT_DATA__ (empty results or structure changed)")
+            print("  [PrimeLocation] 0 listings in __NEXT_DATA__ (empty results or structure changed)")
             return []
 
         properties: List[Property] = []
@@ -137,7 +142,7 @@ def scrape(search: Search) -> List[Property]:
                 listing_uris = item.get("listingUris") or {}
                 detail_uri = listing_uris.get("detail", "") or item.get("url", "")
                 prop_url = (
-                    f"https://www.zoopla.co.uk{detail_uri}"
+                    f"{_PL_BASE}{detail_uri}"
                     if detail_uri and not detail_uri.startswith("http")
                     else detail_uri
                 )
@@ -156,7 +161,7 @@ def scrape(search: Search) -> List[Property]:
                 )
 
                 properties.append(Property(
-                    id=f"zoopla_{listing_id}",
+                    id=f"primelocation_{listing_id}",
                     source="zoopla",
                     listing_type=listing_type,
                     url=prop_url,
@@ -172,9 +177,9 @@ def scrape(search: Search) -> List[Property]:
             except Exception:
                 continue
 
-        print(f"  [Zoopla] {len(properties)} listings fetched")
+        print(f"  [PrimeLocation] {len(properties)} listings fetched")
         return properties
 
     except Exception as exc:
-        print(f"  [Zoopla] Error: {exc}")
+        print(f"  [PrimeLocation] Error: {exc}")
         return []

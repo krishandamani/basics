@@ -299,11 +299,11 @@ def api_diagnostics():
 
 @app.route("/api/test-zoopla")
 def api_test_zoopla():
-    """Test the Zoopla proxy scraper. Takes 5–15 seconds."""
+    """Test PrimeLocation (Zoopla sister site — same data, less Cloudflare). 5–15 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     test_url = (
-        "https://www.zoopla.co.uk/for-sale/property/hitchin/"
+        "https://www.primelocation.com/for-sale/property/hitchin/"
         "?price_min=900000&price_max=1300000&beds_min=3&results_sort=newest_listings"
     )
     try:
@@ -313,6 +313,7 @@ def api_test_zoopla():
         m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
         props = _extract_listings(_json.loads(m.group(1))) if m else []
         return jsonify({
+            "note": "Testing PrimeLocation (Zoopla sister) — Zoopla itself returns 403",
             "test_url": test_url,
             "http_status": resp.status_code,
             "next_data_found": bool(m),
@@ -325,7 +326,7 @@ def api_test_zoopla():
 
 @app.route("/api/test-onthemarket")
 def api_test_onthemarket():
-    """Test the OnTheMarket proxy scraper. Takes 5–15 seconds."""
+    """Test OnTheMarket — returns __NEXT_DATA__ structure on 0 results for debugging. 5–15 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     test_url = (
@@ -334,28 +335,44 @@ def api_test_onthemarket():
     )
     try:
         import re as _re, json as _json
-        from src.scrapers.onthemarket import _get, _find_listings, _parse_html_cards
+        from src.scrapers.onthemarket import _get, _find_listings, _parse_html_cards, scrape
+        from src.models import Search
         resp = _get(test_url, timeout=20)
         m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
+
+        debug = {}
         props = []
+        raw_nd = None
         if m:
             try:
-                nd = _json.loads(m.group(1))
-                pp = nd.get("props", {}).get("pageProps", {})
+                raw_nd = _json.loads(m.group(1))
+                pp = raw_nd.get("props", {}).get("pageProps", {})
+                # Expose structure for debugging
+                debug["pageProps_keys"] = list(pp.keys())
+                debug["pageProps_types"] = {
+                    k: f"{type(v).__name__}[{len(v)}]" if hasattr(v, '__len__') else type(v).__name__
+                    for k, v in pp.items()
+                }
                 results_obj = pp.get("results") or {}
                 props = (
                     results_obj.get("results", []) if isinstance(results_obj, dict) else []
-                ) or pp.get("properties", []) or _find_listings(pp)
-            except Exception:
-                pass
+                ) or pp.get("properties", []) or pp.get("listings", []) or _find_listings(pp)
+            except Exception as e:
+                debug["parse_error"] = str(e)
+
         if not props:
             props = _parse_html_cards(resp.text)
+            debug["used_html_fallback"] = True
+
         return jsonify({
             "test_url": test_url,
             "http_status": resp.status_code,
             "next_data_found": bool(m),
             "properties_parsed": len(props),
             "first_3_raw": props[:3],
+            "debug": debug,
+            # Show raw __NEXT_DATA__ snippet when 0 results so we can fix the path
+            "next_data_snippet": _json.dumps(raw_nd)[:3000] if raw_nd and not props else None,
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
@@ -363,27 +380,36 @@ def api_test_onthemarket():
 
 @app.route("/api/test-fineandcountry")
 def api_test_fineandcountry():
-    """Test the Fine & Country proxy scraper. Takes 5–15 seconds."""
+    """Test Fine & Country — tries multiple URL patterns to find the working one. 15–30 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
-    test_url = (
-        "https://www.fineandcountry.com/property-search/residential-sales/en/"
-        "?q=Hertfordshire&minBedrooms=3&minPrice=900000&maxPrice=1300000&sort=date_desc"
-    )
+
+    candidates = [
+        "https://www.fineandcountry.com/property-search/residential-sales/?q=Hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+        "https://www.fineandcountry.com/property-search/?q=Hitchin&section=residential-sales&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+        "https://www.fineandcountry.com/search?q=Hitchin&type=residential-sales&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+        "https://www.fineandcountry.com/uk/property-search/residential-sales/?q=Hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+        "https://www.fineandcountry.com/property-search/?search_type=for-sale&location=Hitchin&min_bedrooms=3&min_price=900000&max_price=1300000",
+    ]
     try:
-        from src.scrapers.fineandcountry import _get, _parse_html_cards
         import re as _re
-        resp = _get(test_url, timeout=20)
-        m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
-        html_cards = _parse_html_cards(resp.text, "sale")
-        return jsonify({
-            "test_url": test_url,
-            "http_status": resp.status_code,
-            "next_data_found": bool(m),
-            "html_cards_parsed": len(html_cards),
-            "first_3_html": [{"title": p.title, "price": p.price, "url": p.url} for p in html_cards[:3]],
-            "html_snippet": resp.text[1000:2000] if not html_cards else None,
-        })
+        from src.scrapers.fineandcountry import _get, _parse_html_cards
+        results = []
+        for url in candidates:
+            try:
+                resp = _get(url, timeout=15)
+                m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
+                cards = _parse_html_cards(resp.text, "sale") if resp.status_code == 200 else []
+                results.append({
+                    "url": url,
+                    "http_status": resp.status_code,
+                    "next_data": bool(m),
+                    "html_cards": len(cards),
+                    "html_snippet_200": resp.text[500:1200] if resp.status_code == 200 else None,
+                })
+            except Exception as e:
+                results.append({"url": url, "error": str(e)})
+        return jsonify({"url_attempts": results})
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
 
