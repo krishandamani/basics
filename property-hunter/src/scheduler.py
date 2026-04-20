@@ -52,7 +52,7 @@ def _build_scraper_defs() -> list:
         from .scrapers import apify_scraper
         return [
             ("Rightmove",      "rightmove_url",      apify_scraper.scrape_rightmove),
-            ("Zoopla",         "zoopla_url",          scrapers.zoopla.scrape),
+            # Zoopla + PrimeLocation both blocked by Cloudflare (403) even with residential proxy
             ("OnTheMarket",    "onthemarket_url",     scrapers.onthemarket.scrape),
             ("OpenRent",       "openrent_url",        scrapers.openrent.scrape),
             ("FineAndCountry", "fineandcountry_url",  scrapers.fineandcountry.scrape),
