@@ -1,3 +1,3 @@
-from . import rightmove, zoopla, onthemarket, openrent, savills, knightfrank
+from . import rightmove, zoopla, onthemarket, openrent, savills, knightfrank, fineandcountry
 
-__all__ = ["rightmove", "zoopla", "onthemarket", "openrent", "savills", "knightfrank"]
+__all__ = ["rightmove", "zoopla", "onthemarket", "openrent", "savills", "knightfrank", "fineandcountry"]

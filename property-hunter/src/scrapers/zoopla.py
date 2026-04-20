@@ -1,32 +1,40 @@
-"""Zoopla scraper — uses Playwright to handle Cloudflare/JS rendering.
+"""Zoopla scraper — direct HTML via Apify residential proxy.
 
-Builds the search URL automatically from search.location and criteria.
+Parses property data from the embedded __NEXT_DATA__ JSON blob.
+No Playwright required — residential proxy bypasses Cloudflare IP blocks.
 """
 
 import json
+import os
 import re
 from typing import List, Optional
-from urllib.parse import quote
+
+import requests
 
 from ..models import Property, Search
 
-_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 
 def _location_slug(location: str) -> str:
-    """Convert a place name to a Zoopla URL slug. e.g. 'East London' → 'east-london'"""
     return re.sub(r"[^a-z0-9]+", "-", location.lower()).strip("-")
 
 
 def _build_url(search: Search) -> str:
-    """Construct a Zoopla search URL from plain criteria."""
     slug = _location_slug(search.location)
     listing_type = search.listing_type if search.listing_type != "both" else "rent"
     path = "to-rent" if listing_type == "rent" else "for-sale"
-
     params = []
     if search.min_bedrooms:
         params.append(f"beds_min={search.min_bedrooms}")
@@ -37,18 +45,36 @@ def _build_url(search: Search) -> str:
     if search.max_price:
         params.append(f"price_max={search.max_price}")
     params.append("results_sort=newest_listings")
+    return f"https://www.zoopla.co.uk/{path}/property/{slug}/?{'&'.join(params)}"
 
-    qs = "&".join(params)
-    return f"https://www.zoopla.co.uk/{path}/property/{slug}/?{qs}"
+
+def _get(url: str, timeout: int = 30) -> requests.Response:
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if api_key:
+        for group in ("groups-RESIDENTIAL", "auto"):
+            proxy_url = f"http://{group}:{api_key}@proxy.apify.com:8000"
+            try:
+                resp = requests.get(
+                    url, headers=_HEADERS,
+                    proxies={"http": proxy_url, "https": proxy_url},
+                    timeout=timeout, verify=False,
+                )
+                if resp.status_code == 200:
+                    return resp
+                print(f"  [Zoopla/proxy/{group}] {resp.status_code}")
+            except Exception as exc:
+                print(f"  [Zoopla/proxy/{group}] failed: {exc}")
+    return requests.get(url, headers=_HEADERS, timeout=timeout)
 
 
 def _extract_listings(next_data: dict) -> list:
     page_props = next_data.get("props", {}).get("pageProps", {})
+    search_results = page_props.get("searchResults")
     candidates = [
         page_props.get("regularListingsFormatted"),
         page_props.get("listings"),
         page_props.get("properties"),
-        page_props.get("searchResults", {}).get("listings"),
+        search_results.get("listings") if isinstance(search_results, dict) else None,
     ]
     for c in candidates:
         if isinstance(c, list) and c:
@@ -77,40 +103,39 @@ def scrape(search: Search) -> List[Property]:
     listing_type = "rent" if "to-rent" in url else "sale"
 
     try:
-        from playwright.sync_api import sync_playwright
+        resp = _get(url)
+        if resp.status_code != 200:
+            print(f"  [Zoopla] HTTP {resp.status_code} — skipping")
+            return []
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(user_agent=_UA)
-            context.set_extra_http_headers({"Accept-Language": "en-GB,en;q=0.9"})
-            page = context.new_page()
+        m = re.search(
+            r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>',
+            resp.text, re.DOTALL,
+        )
+        if not m:
+            print("  [Zoopla] No __NEXT_DATA__ found — page may be blocked by Cloudflare")
+            return []
 
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_timeout(2_000)
-
-                next_data_str = page.evaluate(
-                    "() => { const el = document.getElementById('__NEXT_DATA__'); "
-                    "return el ? el.textContent : null; }"
-                )
-                if not next_data_str:
-                    print("  [Zoopla] Could not find page data — site may have changed")
-                    return []
-                listings_raw = _extract_listings(json.loads(next_data_str))
-            finally:
-                browser.close()
+        listings_raw = _extract_listings(json.loads(m.group(1)))
+        if not listings_raw:
+            print("  [Zoopla] 0 listings in __NEXT_DATA__ (empty results or structure changed)")
+            return []
 
         properties: List[Property] = []
         for item in listings_raw:
             try:
                 listing_id = str(item.get("id", ""))
+                if not listing_id:
+                    continue
+
                 price_data = item.get("price", {})
                 if isinstance(price_data, dict):
                     price = int(price_data.get("value", price_data.get("amount", 0)) or 0)
                 else:
                     price = int(price_data or 0)
 
-                detail_uri = item.get("listingUris", {}).get("detail", "") or item.get("url", "")
+                listing_uris = item.get("listingUris") or {}
+                detail_uri = listing_uris.get("detail", "") or item.get("url", "")
                 prop_url = (
                     f"https://www.zoopla.co.uk{detail_uri}"
                     if detail_uri and not detail_uri.startswith("http")
@@ -118,26 +143,32 @@ def scrape(search: Search) -> List[Property]:
                 )
 
                 img = item.get("image", {})
-                image_url = img.get("src", "") if isinstance(img, dict) else ""
+                image_url = (img.get("src", "") if isinstance(img, dict) else "") or None
 
                 address = str(item.get("address", ""))
                 postcode_match = re.search(r"[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}", address)
 
-                properties.append(
-                    Property(
-                        id=f"zoopla_{listing_id}",
-                        source="zoopla",
-                        listing_type=listing_type,
-                        url=prop_url,
-                        price=price,
-                        bedrooms=int(item.get("beds", item.get("bedrooms", 0)) or 0),
-                        property_type=str(item.get("propertyType", item.get("property_type", ""))),
-                        address=address,
-                        title=str(item.get("title", "")),
-                        postcode=postcode_match.group() if postcode_match else None,
-                        image_url=image_url or None,
-                    )
+                branch = item.get("branch") or {}
+                agent_name = (
+                    branch.get("name")
+                    or item.get("agentName")
+                    or None
                 )
+
+                properties.append(Property(
+                    id=f"zoopla_{listing_id}",
+                    source="zoopla",
+                    listing_type=listing_type,
+                    url=prop_url,
+                    price=price,
+                    bedrooms=int(item.get("beds", item.get("bedrooms", 0)) or 0),
+                    property_type=str(item.get("propertyType", item.get("property_type", ""))),
+                    address=address,
+                    title=str(item.get("title", "")),
+                    postcode=postcode_match.group() if postcode_match else None,
+                    image_url=image_url,
+                    agent_name=str(agent_name) if agent_name else None,
+                ))
             except Exception:
                 continue
 

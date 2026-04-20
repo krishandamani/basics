@@ -297,6 +297,97 @@ def api_diagnostics():
     })
 
 
+@app.route("/api/test-zoopla")
+def api_test_zoopla():
+    """Test the Zoopla proxy scraper. Takes 5–15 seconds."""
+    if not os.environ.get("APIFY_API_KEY"):
+        return jsonify({"error": "APIFY_API_KEY not set"}), 400
+    test_url = (
+        "https://www.zoopla.co.uk/for-sale/property/hitchin/"
+        "?price_min=900000&price_max=1300000&beds_min=3&results_sort=newest_listings"
+    )
+    try:
+        import re as _re, json as _json
+        from src.scrapers.zoopla import _get, _extract_listings
+        resp = _get(test_url, timeout=20)
+        m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
+        props = _extract_listings(_json.loads(m.group(1))) if m else []
+        return jsonify({
+            "test_url": test_url,
+            "http_status": resp.status_code,
+            "next_data_found": bool(m),
+            "properties_parsed": len(props),
+            "first_3_raw": props[:3],
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
+
+
+@app.route("/api/test-onthemarket")
+def api_test_onthemarket():
+    """Test the OnTheMarket proxy scraper. Takes 5–15 seconds."""
+    if not os.environ.get("APIFY_API_KEY"):
+        return jsonify({"error": "APIFY_API_KEY not set"}), 400
+    test_url = (
+        "https://www.onthemarket.com/for-sale/property/hitchin/"
+        "?min-price=900000&max-price=1300000&min-bedrooms=3&sort=newest"
+    )
+    try:
+        import re as _re, json as _json
+        from src.scrapers.onthemarket import _get, _find_listings, _parse_html_cards
+        resp = _get(test_url, timeout=20)
+        m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
+        props = []
+        if m:
+            try:
+                nd = _json.loads(m.group(1))
+                pp = nd.get("props", {}).get("pageProps", {})
+                results_obj = pp.get("results") or {}
+                props = (
+                    results_obj.get("results", []) if isinstance(results_obj, dict) else []
+                ) or pp.get("properties", []) or _find_listings(pp)
+            except Exception:
+                pass
+        if not props:
+            props = _parse_html_cards(resp.text)
+        return jsonify({
+            "test_url": test_url,
+            "http_status": resp.status_code,
+            "next_data_found": bool(m),
+            "properties_parsed": len(props),
+            "first_3_raw": props[:3],
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
+
+
+@app.route("/api/test-fineandcountry")
+def api_test_fineandcountry():
+    """Test the Fine & Country proxy scraper. Takes 5–15 seconds."""
+    if not os.environ.get("APIFY_API_KEY"):
+        return jsonify({"error": "APIFY_API_KEY not set"}), 400
+    test_url = (
+        "https://www.fineandcountry.com/property-search/residential-sales/en/"
+        "?q=Hertfordshire&minBedrooms=3&minPrice=900000&maxPrice=1300000&sort=date_desc"
+    )
+    try:
+        from src.scrapers.fineandcountry import _get, _parse_html_cards
+        import re as _re
+        resp = _get(test_url, timeout=20)
+        m = _re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', resp.text, _re.DOTALL)
+        html_cards = _parse_html_cards(resp.text, "sale")
+        return jsonify({
+            "test_url": test_url,
+            "http_status": resp.status_code,
+            "next_data_found": bool(m),
+            "html_cards_parsed": len(html_cards),
+            "first_3_html": [{"title": p.title, "price": p.price, "url": p.url} for p in html_cards[:3]],
+            "html_snippet": resp.text[1000:2000] if not html_cards else None,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
+
+
 @app.route("/api/test-rightmove")
 def api_test_rightmove():
     """Test the Rightmove proxy scraper against one URL and return raw output.

@@ -49,3 +49,4 @@ class Search:
     openrent_url: Optional[str] = None
     savills_url: Optional[str] = None
     knightfrank_url: Optional[str] = None
+    fineandcountry_url: Optional[str] = None

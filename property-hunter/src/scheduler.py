@@ -48,12 +48,14 @@ _last_run_stats: dict = {}
 
 def _build_scraper_defs() -> list:
     if _apify_configured():
-        # Cloud mode: Apify handles Rightmove/Zoopla/OTM; OpenRent is lightweight.
-        # Savills/KnightFrank are Playwright-only — excluded here to avoid OOM.
+        # Cloud mode: all proxy-based scrapers. Playwright scrapers excluded (OOM risk).
         from .scrapers import apify_scraper
         return [
-            ("Rightmove",   "rightmove_url",   apify_scraper.scrape_rightmove),
-            ("OpenRent",    "openrent_url",     scrapers.openrent.scrape),
+            ("Rightmove",      "rightmove_url",      apify_scraper.scrape_rightmove),
+            ("Zoopla",         "zoopla_url",          scrapers.zoopla.scrape),
+            ("OnTheMarket",    "onthemarket_url",     scrapers.onthemarket.scrape),
+            ("OpenRent",       "openrent_url",        scrapers.openrent.scrape),
+            ("FineAndCountry", "fineandcountry_url",  scrapers.fineandcountry.scrape),
         ]
     # Local mode: direct scrapers + Playwright for premium agents (if available).
     defs = [

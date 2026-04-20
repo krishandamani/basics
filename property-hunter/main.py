@@ -80,6 +80,7 @@ def build_searches(config: dict):
                 openrent_url=s.get("openrent_url") or None,
                 savills_url=s.get("savills_url") or None,
                 knightfrank_url=s.get("knightfrank_url") or None,
+                fineandcountry_url=s.get("fineandcountry_url") or None,
                 min_price=s.get("min_price"),
                 max_price=s.get("max_price"),
                 min_bedrooms=s.get("min_bedrooms"),
