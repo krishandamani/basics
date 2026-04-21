@@ -310,56 +310,63 @@ def api_test_zoopla():
 
 @app.route("/api/test-onthemarket")
 def api_test_onthemarket():
-    """Dig OTM JS bundle for API endpoint URL, + try subdomain / graphql. 20–40 s."""
+    """OTM has properties in initialReduxState (not pageProps). Dump full structure. 10–20 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
-        import re as _re
+        import re as _re, json as _json
         from src.scrapers.onthemarket import _get
 
-        # 1. Fetch the manifest to find the main JS bundle hashes
-        manifest_resp = _get("https://www.onthemarket.com/assets/0e55a3d9/gzip/js/manifest.json", timeout=10)
-        manifest_info = {
-            "status": manifest_resp.status_code,
-            "snippet": manifest_resp.text[:500] if manifest_resp.status_code == 200 else None,
+        resp = _get(
+            "https://www.onthemarket.com/for-sale/property/hitchin/"
+            "?min-price=900000&max-price=1300000&min-bedrooms=3&sort=recent",
+            timeout=20,
+        )
+
+        m = _re.search(
+            r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>',
+            resp.text, _re.DOTALL,
+        )
+        if not m:
+            return jsonify({"error": "no __NEXT_DATA__", "status": resp.status_code})
+
+        nd = _json.loads(m.group(1))
+        redux = nd.get("props", {}).get("initialReduxState", {})
+
+        # Show top-level keys and types of initialReduxState
+        redux_summary = {
+            k: (
+                f"list[{len(v)}]" if isinstance(v, list)
+                else f"dict_keys={list(v.keys())[:8]}" if isinstance(v, dict)
+                else type(v).__name__
+            )
+            for k, v in redux.items()
         }
 
-        # 2. Try sitemap for search URL clues
-        sitemap_resp = _get("https://www.onthemarket.com/sitemap.xml", timeout=10)
-        sitemap_snippet = sitemap_resp.text[:800] if sitemap_resp.status_code == 200 else f"status {sitemap_resp.status_code}"
+        # If there's a properties/results/listings key, show first item
+        first_property = None
+        for key in ("properties", "results", "listings", "searchResults", "propertyResults"):
+            val = redux.get(key)
+            if isinstance(val, list) and val:
+                first_property = {"key": key, "count": len(val), "sample": val[0]}
+                break
+            if isinstance(val, dict):
+                for sub_key, sub_val in val.items():
+                    if isinstance(sub_val, list) and sub_val and isinstance(sub_val[0], dict):
+                        first_property = {"key": f"{key}.{sub_key}", "count": len(sub_val), "sample": sub_val[0]}
+                        break
+                if first_property:
+                    break
 
-        # 3. Try subdomain + GraphQL + other routes
-        extra_attempts = []
-        for url in [
-            "https://api.onthemarket.com/search?channel=property&search-type=for-sale&location-id=hitchin&min-price=900000&max-price=1300000&min-bedrooms=3",
-            "https://www.onthemarket.com/graphql",  # POST with empty body — just check if endpoint exists
-        ]:
-            try:
-                if "graphql" in url:
-                    import requests as _req
-                    r = _req.post(url, json={"query": "{properties{id}}"}, headers={"Content-Type": "application/json"}, timeout=8, verify=False)
-                else:
-                    r = _get(url, timeout=8)
-                extra_attempts.append({
-                    "url": url,
-                    "status": r.status_code,
-                    "content_type": r.headers.get("Content-Type", ""),
-                    "snippet": r.text[:200],
-                })
-            except Exception as e:
-                extra_attempts.append({"url": url, "error": str(e)})
-
-        # 4. Fetch the HTML page and look for API URLs embedded in scripts
-        html_resp = _get("https://www.onthemarket.com/for-sale/property/hitchin/?min-price=900000&max-price=1300000&min-bedrooms=3", timeout=15)
-        api_urls_in_html = list(set(_re.findall(r'https?://[^\s"\'<>]+(?:api|search|async|properties)[^\s"\'<>]*', html_resp.text)))[:20]
-        script_srcs = _re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html_resp.text)[:10]
+        # Extract property IDs from image URLs as a cross-check
+        img_ids = list(set(_re.findall(r'media\.onthemarket\.com/properties/(\d+)/', resp.text)))[:10]
 
         return jsonify({
-            "manifest": manifest_info,
-            "sitemap_snippet": sitemap_snippet,
-            "extra_attempts": extra_attempts,
-            "api_urls_found_in_html": api_urls_in_html,
-            "script_src_tags": script_srcs,
+            "status": resp.status_code,
+            "initialReduxState_keys": redux_summary,
+            "first_property_found": first_property,
+            "property_ids_from_images": img_ids,
+            "image_count": len(img_ids),
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
@@ -367,34 +374,62 @@ def api_test_onthemarket():
 
 @app.route("/api/test-fineandcountry")
 def api_test_fineandcountry():
-    """Parse F&C homepage to find property search nav links and featured card data."""
+    """F&C search is at /find-a-property/property-for-sale — probe filter params. 15–30 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
-        from src.scrapers.fineandcountry import _get, _parse_html_cards
+        import re as _re
+        from src.scrapers.fineandcountry import _get
         from bs4 import BeautifulSoup
 
-        resp = _get("https://www.fineandcountry.com/", timeout=15)
-        soup = BeautifulSoup(resp.text, "html.parser")
+        # First, load the base search page to see its structure and any JS-driven filter hints
+        base_resp = _get("https://www.fineandcountry.com/find-a-property/property-for-sale", timeout=15)
+        base_soup = BeautifulSoup(base_resp.text, "html.parser")
 
-        # All links containing property/sale/search/residential/listings keywords
-        property_links = []
-        for a in soup.find_all("a", href=True):
+        # Extract ALL links on the search page that look like property listings
+        prop_links = []
+        for a in base_soup.find_all("a", href=True):
             href = a["href"]
-            text = a.get_text(strip=True)
-            keywords = ("sale", "property", "search", "residential", "listing", "find", "buy")
-            if any(k in href.lower() or k in text.lower() for k in keywords):
-                full = href if href.startswith("http") else f"https://www.fineandcountry.com{href}"
-                property_links.append({"text": text[:60], "href": full})
+            if any(k in href for k in ("/property/", "/details/", "/listing/", "/sale/", "/for-sale/")):
+                prop_links.append({"href": href, "text": a.get_text(strip=True)[:50]})
 
-        # The 6 cards the scraper found
-        cards = _parse_html_cards(resp.text, "sale")
-        card_data = [{"title": p.title[:80], "price": p.price, "url": p.url} for p in cards]
+        # Look for any JSON data embedded in script tags
+        scripts_with_data = []
+        for s in base_soup.find_all("script"):
+            text = s.get_text()
+            if any(k in text for k in ("properties", "listings", "priceMin", "price_min", "propertyType")):
+                scripts_with_data.append(text[:400])
+
+        # Look for form inputs that reveal filter param names
+        form_inputs = []
+        for inp in base_soup.find_all(["input", "select"], attrs={"name": True}):
+            form_inputs.append({"name": inp.get("name"), "type": inp.get("type"), "value": inp.get("value", "")[:50]})
+
+        # Try a few filter URL variants based on what we now know the correct base URL is
+        filter_attempts = []
+        for url in [
+            "https://www.fineandcountry.com/find-a-property/property-for-sale?location=hitchin&min_beds=3&min_price=900000&max_price=1300000",
+            "https://www.fineandcountry.com/find-a-property/property-for-sale?q=hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+            "https://www.fineandcountry.com/find-a-property/property-for-sale?location=hitchin",
+            "https://www.fineandcountry.com/find-a-property/property-for-sale/hitchin",
+            "https://www.fineandcountry.com/find-a-property/property-for-sale/hitchin/3-plus-bedrooms",
+        ]:
+            try:
+                r = _get(url, timeout=10)
+                filter_attempts.append({
+                    "url": url, "status": r.status_code,
+                    "snippet": r.text[300:700] if r.status_code == 200 else None,
+                })
+            except Exception as e:
+                filter_attempts.append({"url": url, "error": str(e)})
 
         return jsonify({
-            "homepage_status": resp.status_code,
-            "property_nav_links": property_links[:30],
-            "cards_found": card_data,
+            "base_page_status": base_resp.status_code,
+            "property_links_on_page": prop_links[:20],
+            "form_inputs": form_inputs[:20],
+            "scripts_with_data": scripts_with_data[:3],
+            "filter_attempts": filter_attempts,
+            "base_snippet": base_resp.text[200:800],
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
