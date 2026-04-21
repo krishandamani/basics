@@ -310,58 +310,78 @@ def api_test_zoopla():
 
 @app.route("/api/test-onthemarket")
 def api_test_onthemarket():
-    """Test OTM async API directly (OTM is a Redux app, __NEXT_DATA__ is empty shell). 5–15 s."""
+    """Probe OTM API endpoints — tries 6 patterns to find the real JSON search route. 20–40 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
-    api_url = (
-        "https://www.onthemarket.com/async-search/"
-        "?channel=property&search-type=for-sale&location-id=hitchin"
-        "&min-price=900000&max-price=1300000&min-bedrooms=3"
-        "&sort-field=recent&direction=desc&frame-size=10&page=1"
-    )
     try:
         from src.scrapers.onthemarket import _get
-        resp = _get(api_url, timeout=20)
-        try:
-            data = resp.json()
-        except Exception:
-            data = {}
-        props = data.get("properties") or data.get("results") or data.get("listings") or []
-        return jsonify({
-            "api_url": api_url,
-            "http_status": resp.status_code,
-            "response_keys": list(data.keys()) if isinstance(data, dict) else [],
-            "properties_found": len(props),
-            "first_3": props[:3],
-            # Show raw response snippet when 0 results to debug structure
-            "raw_snippet": str(resp.text)[:2000] if not props else None,
-        })
+        import json as _json
+
+        base_params = "min-price=900000&max-price=1300000&min-bedrooms=3"
+        candidates = [
+            # Next.js API routes
+            ("GET_JSON", f"https://www.onthemarket.com/api/search/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}&sort-field=recent&page=1&frame-size=10"),
+            ("GET_JSON", f"https://www.onthemarket.com/api/properties/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}"),
+            ("GET_JSON", f"https://www.onthemarket.com/api/results/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}"),
+            # Same HTML URL but with Accept: application/json
+            ("GET_JSON", f"https://www.onthemarket.com/for-sale/property/hitchin/?{base_params}&sort=recent"),
+            # async-search variations
+            ("GET_JSON", f"https://www.onthemarket.com/async-search/results/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}"),
+            ("GET_JSON", f"https://www.onthemarket.com/search/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}&format=json"),
+        ]
+
+        results = []
+        for method, url in candidates:
+            try:
+                resp = _get(url, timeout=12)
+                is_json = "application/json" in resp.headers.get("Content-Type", "")
+                try:
+                    data = resp.json()
+                    top_keys = list(data.keys()) if isinstance(data, dict) else f"list[{len(data)}]"
+                    props_count = len(data.get("properties") or data.get("results") or data.get("listings") or [])
+                except Exception:
+                    data = {}
+                    top_keys = []
+                    props_count = 0
+                results.append({
+                    "url": url,
+                    "status": resp.status_code,
+                    "content_type": resp.headers.get("Content-Type", ""),
+                    "is_json": is_json,
+                    "json_keys": top_keys,
+                    "properties_found": props_count,
+                    "snippet": resp.text[:300] if resp.status_code == 200 else None,
+                })
+            except Exception as e:
+                results.append({"url": url, "error": str(e)})
+
+        return jsonify({"attempts": results})
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
 
 
 @app.route("/api/test-fineandcountry")
 def api_test_fineandcountry():
-    """Test Fine & Country — probes robots.txt + 8 URL patterns to find working search URL."""
+    """F&C uses CraftCMS with path-based URLs (robots.txt blocks ?query). Probe clean paths. 20–40 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
-        import re as _re
         from src.scrapers.fineandcountry import _get, _parse_html_cards
 
-        # First: fetch robots.txt to find allowed paths
-        robots_resp = _get("https://www.fineandcountry.com/robots.txt", timeout=10)
-        robots_text = robots_resp.text[:2000] if robots_resp.status_code == 200 else "unavailable"
-
+        # CraftCMS sites use URL segments, not query strings
         candidates = [
-            "https://www.fineandcountry.com/property-search/",
-            "https://www.fineandcountry.com/property-search/residential-for-sale/?q=Hitchin&min_bedrooms=3&min_price=900000&max_price=1300000",
-            "https://www.fineandcountry.com/property-for-sale/?location=Hitchin&min_bedrooms=3&min_price=900000&max_price=1300000",
-            "https://www.fineandcountry.com/en/property-search/residential-sales/?q=Hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
-            "https://www.fineandcountry.com/residential-for-sale/en/?q=Hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
-            "https://www.fineandcountry.com/search/residential-sales/?location=Hitchin&min_beds=3&min_price=900000&max_price=1300000",
-            "https://www.fineandcountry.com/property/for-sale/?q=Hitchin",
-            "https://www.fineandcountry.com/listings/?q=Hitchin&type=for-sale",
+            "https://www.fineandcountry.com/properties/for-sale/hitchin",
+            "https://www.fineandcountry.com/properties/for-sale/hertfordshire",
+            "https://www.fineandcountry.com/property-for-sale/hitchin",
+            "https://www.fineandcountry.com/property-for-sale/hertfordshire",
+            "https://www.fineandcountry.com/residential-for-sale/hitchin",
+            "https://www.fineandcountry.com/residential-for-sale/hertfordshire",
+            "https://www.fineandcountry.com/for-sale/hitchin",
+            "https://www.fineandcountry.com/for-sale/hertfordshire",
+            "https://www.fineandcountry.com/en/for-sale/hitchin",
+            "https://www.fineandcountry.com/en-gb/properties/for-sale/hitchin",
+            # Try the homepage to see what links/paths exist
+            "https://www.fineandcountry.com/",
         ]
         results = []
         for url in candidates:
@@ -372,11 +392,11 @@ def api_test_fineandcountry():
                     "url": url,
                     "status": resp.status_code,
                     "cards_found": len(cards),
-                    "snippet": resp.text[200:600] if resp.status_code == 200 else None,
+                    "snippet": resp.text[200:800] if resp.status_code == 200 else None,
                 })
             except Exception as e:
                 results.append({"url": url, "error": str(e)})
-        return jsonify({"robots_txt": robots_text, "url_attempts": results})
+        return jsonify({"note": "CraftCMS — path-based URLs only", "attempts": results})
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
 
