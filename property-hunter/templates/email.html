@@ -96,7 +96,11 @@
 
   <!-- Header -->
   <div class="header">
+    {% if is_price_drop %}
+    <h1>💰 {{ count }} price drop{{ 's' if count != 1 else '' }}</h1>
+    {% else %}
     <h1>🏠 {{ count }} new propert{{ 'y' if count == 1 else 'ies' }} found</h1>
+    {% endif %}
     <p>{{ date }} &nbsp;·&nbsp; Property Hunter alert</p>
   </div>
 
@@ -123,10 +127,19 @@
         £{{ "{:,}".format(prop.price) }}
         <span class="freq">{% if prop.listing_type == 'rent' %}/month{% endif %}</span>
       </div>
+      {% if prop.previous_price %}
+      <div style="font-size:13px;color:#991b1b;margin:-4px 0 8px;font-weight:600;">
+        ↓ Was £{{ "{:,}".format(prop.previous_price) }}
+        (−{{ ((prop.previous_price - prop.price) / prop.previous_price * 100) | round | int }}%)
+      </div>
+      {% endif %}
 
       <!-- Title & address -->
       <div class="title">{{ prop.title or prop.address }}</div>
       <div class="meta">📍 {{ prop.address }}</div>
+      {% if prop.agent_name %}
+      <div class="meta" style="color:#9ca3af;font-size:13px;">{{ prop.agent_name }}</div>
+      {% endif %}
 
       <!-- Beds & type -->
       <div class="meta">

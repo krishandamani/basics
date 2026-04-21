@@ -14,12 +14,12 @@ import schedule
 
 from .database import (
     get_stored_price, get_health_alert_sent, init_db,
-    is_new, mark_sent, save_property, set_health_alert_sent,
+    is_new, is_url_known, mark_sent, save_property, set_health_alert_sent,
 )
 from .enricher import enrich
 from .matcher import filter_properties
 from .models import Search
-from .notifier import send_digest, send_health_alert, send_price_drop_alert, send_telegram_alert
+from .notifier import send_digest, send_health_alert, send_price_drop_alert, send_price_drop_email, send_telegram_alert
 from . import scrapers
 
 _USE_APIFY = bool(os.environ.get("APIFY_API_KEY"))
@@ -180,7 +180,7 @@ def run_cycle(config: dict, searches: List[Search], send_health_alerts: bool = F
         new_this_search = []
         for prop in matched:
             stored_price = get_stored_price(prop.id)
-            if is_new(prop.id, search.id):
+            if is_new(prop.id, search.id) and not is_url_known(prop.url):
                 prop = enrich(prop)
                 save_property(prop)
                 mark_sent(prop.id, search.id)
@@ -210,6 +210,7 @@ def run_cycle(config: dict, searches: List[Search], send_health_alerts: bool = F
         n = len(price_drops)
         print(f"  Sending price drop alerts for {n} propert{'ies' if n != 1 else 'y'}…")
         send_price_drop_alert(price_drops, config)
+        send_price_drop_email(price_drops, config)
 
     next_run = schedule.next_run()
     if next_run:

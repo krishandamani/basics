@@ -159,6 +159,35 @@ def send_telegram_alert(matches: List[Tuple[Property, Search]], config: dict) ->
         print(f"  [Telegram] {sent} new-listing alert(s) sent")
 
 
+def send_price_drop_email(drops: list, config: dict) -> None:
+    """Send an HTML email digest for price-dropped properties."""
+    if not drops:
+        return
+    address, app_password = _get_credentials(config)
+    if not address or not app_password:
+        return
+
+    # Convert drop tuples to (prop, search) with previous_price already set on prop
+    matches = [(prop, search) for prop, _old, search in drops]
+
+    env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
+    template = env.get_template("email.html")
+    html_body = template.render(
+        matches=matches,
+        count=len(matches),
+        date=datetime.now().strftime("%-d %b %Y"),
+        is_price_drop=True,
+    )
+
+    n = len(matches)
+    subject = (
+        f"[Property Alert] {n} price drop{'s' if n != 1 else ''}"
+        f" — {datetime.now().strftime('%-d %b')}"
+    )
+    if _send(address, app_password, subject, html_body):
+        print(f"[Email] ✓ Price-drop digest sent — {n} propert{'ies' if n != 1 else 'y'} to {address}")
+
+
 def send_price_drop_alert(drops: list, config: dict) -> None:
     """Send Telegram push notifications for price-dropped properties."""
     token, chat_id = _tg_credentials(config)

@@ -142,15 +142,20 @@ def _geocode(postcodes: list) -> dict:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _enrich_is_new(props) -> list:
-    """Add is_new flag (True if first_seen < 24 h ago) and convert Rows to dicts."""
-    cutoff = datetime.now() - timedelta(hours=24)
+    """Add is_new and days_ago fields; convert Rows to dicts."""
+    now = datetime.now()
+    cutoff = now - timedelta(hours=24)
     out = []
     for p in props:
         d = dict(p)
         try:
-            d["is_new"] = datetime.fromisoformat(d["first_seen"]) > cutoff
+            fs = datetime.fromisoformat(d["first_seen"])
+            d["is_new"] = fs > cutoff
+            days = (now - fs).days
+            d["days_ago"] = None if days == 0 else f"{days}d ago"
         except Exception:
             d["is_new"] = False
+            d["days_ago"] = None
         out.append(d)
     return out
 
@@ -166,14 +171,16 @@ def _parse_int(val: str):
 
 @app.route("/")
 def index():
-    q             = request.args.get("q", "").strip()
-    listing_type  = request.args.get("listing_type", "")
-    min_price_raw = request.args.get("min_price", "")
-    max_price_raw = request.args.get("max_price", "")
-    min_beds_raw  = request.args.get("min_beds", "")
-    source        = request.args.get("source", "")
-    sort          = request.args.get("sort", "newest")
-    new_only      = bool(request.args.get("new_only"))
+    q                = request.args.get("q", "").strip()
+    listing_type     = request.args.get("listing_type", "")
+    min_price_raw    = request.args.get("min_price", "")
+    max_price_raw    = request.args.get("max_price", "")
+    min_beds_raw     = request.args.get("min_beds", "")
+    source           = request.args.get("source", "")
+    property_type    = request.args.get("property_type", "")
+    keyword          = request.args.get("keyword", "").strip()
+    sort             = request.args.get("sort", "newest")
+    new_only         = bool(request.args.get("new_only"))
 
     nl = _parse_nl(q) if q else {}
 
@@ -183,6 +190,8 @@ def index():
         max_price     = nl.get("max_price")    or _parse_int(max_price_raw),
         min_bedrooms  = nl.get("min_bedrooms") or _parse_int(min_beds_raw),
         source        = source,
+        property_type = property_type,
+        keyword       = keyword,
         sort          = sort,
     ))
 
@@ -190,7 +199,8 @@ def index():
     displayed  = [p for p in all_props if p["is_new"]] if new_only else all_props
 
     active_filter_count = sum(bool(x) for x in [
-        listing_type, min_price_raw, max_price_raw, min_beds_raw, source, q
+        listing_type, min_price_raw, max_price_raw, min_beds_raw, source, q,
+        property_type, keyword,
     ])
 
     # Used in templates to build tab URLs that preserve current filters
@@ -203,6 +213,7 @@ def index():
             "q": q, "listing_type": listing_type,
             "min_price": min_price_raw, "max_price": max_price_raw,
             "min_beds": min_beds_raw, "source": source,
+            "property_type": property_type, "keyword": keyword,
             "sort": sort, "new_only": new_only,
         },
         search_state        = _search_state_for_template(),
@@ -295,6 +306,28 @@ def api_diagnostics():
         "apify_configured": _apify_configured(),
         "last_run": _last_run_stats,
     })
+
+
+@app.route("/api/db-status")
+def api_db_status():
+    """Show which DB backend is active and row counts — useful for diagnosing duplicate emails."""
+    from src.database import _USE_PG, _db, _x
+    try:
+        with _db() as conn:
+            props = _x(conn, "SELECT COUNT(*) FROM properties").fetchone()[0]
+            alerts = _x(conn, "SELECT COUNT(*) FROM alerts_sent").fetchone()[0]
+        return jsonify({
+            "backend": "postgresql" if _USE_PG else "sqlite",
+            "properties": props,
+            "alerts_sent": alerts,
+            "note": (
+                "If alerts_sent is 0 but properties > 0, the DB was restarted and "
+                "URL-dedup will prevent duplicate emails."
+                if alerts == 0 and props > 0 else ""
+            ),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/test-zoopla")

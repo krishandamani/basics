@@ -82,6 +82,7 @@ def init_db() -> None:
                 commute_minutes INTEGER,
                 nearest_school  TEXT,
                 school_rating   TEXT,
+                agent_name      TEXT,
                 first_seen      TEXT
             )
         """)
@@ -90,6 +91,7 @@ def init_db() -> None:
             ("nearest_school", "TEXT"),
             ("school_rating", "TEXT"),
             ("previous_price", "INTEGER"),
+            ("agent_name", "TEXT"),
         ]:
             try:
                 _x(conn, f"ALTER TABLE properties ADD COLUMN {col} {defn}")
@@ -138,6 +140,20 @@ def mark_sent(property_id: str, search_id: str) -> None:
             )
 
 
+def is_url_known(url: str) -> bool:
+    """Return True if this URL already exists in the properties table.
+
+    Used as a fallback dedup check: if alerts_sent is wiped (SQLite restart),
+    this prevents re-alerting for properties already stored in the DB.
+    """
+    with _db() as conn:
+        row = _x(conn,
+            "SELECT 1 FROM properties WHERE url = ?",
+            (url,),
+        ).fetchone()
+        return row is not None
+
+
 def get_stored_price(property_id: str) -> Optional[int]:
     """Return the current stored price for a property, or None if not in the DB."""
     with _db() as conn:
@@ -158,7 +174,7 @@ def save_property(prop: Property) -> None:
         prop.bedrooms, prop.property_type, prop.address,
         prop.title, prop.postcode, prop.image_url,
         prop.epc_rating, prop.crime_rate, prop.commute_minutes,
-        prop.nearest_school, prop.school_rating,
+        prop.nearest_school, prop.school_rating, prop.agent_name,
         prop.first_seen.isoformat(),
     )
     with _db() as conn:
@@ -168,8 +184,8 @@ def save_property(prop: Property) -> None:
                     (id, source, listing_type, url, price, previous_price,
                      bedrooms, property_type, address, title, postcode, image_url,
                      epc_rating, crime_rate, commute_minutes,
-                     nearest_school, school_rating, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     nearest_school, school_rating, agent_name, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (id) DO UPDATE SET
                     source          = EXCLUDED.source,
                     listing_type    = EXCLUDED.listing_type,
@@ -186,7 +202,8 @@ def save_property(prop: Property) -> None:
                     crime_rate      = EXCLUDED.crime_rate,
                     commute_minutes = EXCLUDED.commute_minutes,
                     nearest_school  = EXCLUDED.nearest_school,
-                    school_rating   = EXCLUDED.school_rating
+                    school_rating   = EXCLUDED.school_rating,
+                    agent_name      = EXCLUDED.agent_name
             """, params)
         else:
             _x(conn, """
@@ -194,8 +211,8 @@ def save_property(prop: Property) -> None:
                     (id, source, listing_type, url, price, previous_price,
                      bedrooms, property_type, address, title, postcode, image_url,
                      epc_rating, crime_rate, commute_minutes,
-                     nearest_school, school_rating, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     nearest_school, school_rating, agent_name, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, params)
 
 
@@ -227,6 +244,8 @@ def get_web_properties(
     max_price: int = None,
     min_bedrooms: int = None,
     source: str = "",
+    property_type: str = "",
+    keyword: str = "",
     favourites_only: bool = False,
     sort: str = "newest",
     limit: int = 300,
@@ -252,6 +271,13 @@ def get_web_properties(
     if source:
         conditions.append("p.source = ?")
         params.append(source)
+    if property_type:
+        conditions.append("LOWER(COALESCE(p.property_type,'')) LIKE ?")
+        params.append(f"%{property_type.lower()}%")
+    if keyword:
+        conditions.append("(p.address LIKE ? OR p.title LIKE ?)")
+        params.append(f"%{keyword}%")
+        params.append(f"%{keyword}%")
 
     where = "WHERE " + " AND ".join(conditions)
 
