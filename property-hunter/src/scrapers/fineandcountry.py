@@ -33,15 +33,14 @@ _FC_BASE = "https://www.fineandcountry.com"
 
 
 def _build_url(search: Search) -> str:
-    params = [f"q={quote(search.location)}"]
+    params = [f"location={quote(search.location)}"]
     if search.min_bedrooms:
         params.append(f"minBedrooms={search.min_bedrooms}")
     if search.min_price:
         params.append(f"minPrice={search.min_price}")
     if search.max_price:
         params.append(f"maxPrice={search.max_price}")
-    params.append("sort=date_desc")
-    return f"{_FC_BASE}/property-search/residential-sales/en/?{'&'.join(params)}"
+    return f"{_FC_BASE}/find-a-property/property-for-sale?{'&'.join(params)}"
 
 
 def _get(url: str, timeout: int = 30) -> requests.Response:

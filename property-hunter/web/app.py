@@ -310,63 +310,27 @@ def api_test_zoopla():
 
 @app.route("/api/test-onthemarket")
 def api_test_onthemarket():
-    """OTM has properties in initialReduxState (not pageProps). Dump full structure. 10–20 s."""
+    """Test OTM scraper against a Hitchin sale search. 10–20 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
-        import re as _re, json as _json
-        from src.scrapers.onthemarket import _get
-
-        resp = _get(
-            "https://www.onthemarket.com/for-sale/property/hitchin/"
-            "?min-price=900000&max-price=1300000&min-bedrooms=3&sort=recent",
-            timeout=20,
+        from src.scrapers.onthemarket import scrape
+        from src.models import Search
+        search = Search(
+            id="test", name="Test", listing_type="sale",
+            location="hitchin", min_bedrooms=3, min_price=900000, max_price=1300000,
         )
-
-        m = _re.search(
-            r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>',
-            resp.text, _re.DOTALL,
-        )
-        if not m:
-            return jsonify({"error": "no __NEXT_DATA__", "status": resp.status_code})
-
-        nd = _json.loads(m.group(1))
-        redux = nd.get("props", {}).get("initialReduxState", {})
-
-        # Show top-level keys and types of initialReduxState
-        redux_summary = {
-            k: (
-                f"list[{len(v)}]" if isinstance(v, list)
-                else f"dict_keys={list(v.keys())[:8]}" if isinstance(v, dict)
-                else type(v).__name__
-            )
-            for k, v in redux.items()
-        }
-
-        # If there's a properties/results/listings key, show first item
-        first_property = None
-        for key in ("properties", "results", "listings", "searchResults", "propertyResults"):
-            val = redux.get(key)
-            if isinstance(val, list) and val:
-                first_property = {"key": key, "count": len(val), "sample": val[0]}
-                break
-            if isinstance(val, dict):
-                for sub_key, sub_val in val.items():
-                    if isinstance(sub_val, list) and sub_val and isinstance(sub_val[0], dict):
-                        first_property = {"key": f"{key}.{sub_key}", "count": len(sub_val), "sample": sub_val[0]}
-                        break
-                if first_property:
-                    break
-
-        # Extract property IDs from image URLs as a cross-check
-        img_ids = list(set(_re.findall(r'media\.onthemarket\.com/properties/(\d+)/', resp.text)))[:10]
-
+        props = scrape(search)
         return jsonify({
-            "status": resp.status_code,
-            "initialReduxState_keys": redux_summary,
-            "first_property_found": first_property,
-            "property_ids_from_images": img_ids,
-            "image_count": len(img_ids),
+            "count": len(props),
+            "properties": [
+                {
+                    "title": p.title, "price": p.price, "bedrooms": p.bedrooms,
+                    "address": p.address, "url": p.url,
+                    "image_url": p.image_url, "agent_name": p.agent_name,
+                }
+                for p in props[:5]
+            ],
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
@@ -374,62 +338,81 @@ def api_test_onthemarket():
 
 @app.route("/api/test-fineandcountry")
 def api_test_fineandcountry():
-    """F&C search is at /find-a-property/property-for-sale — probe filter params. 15–30 s."""
+    """Probe F&C JSON/API endpoints — site is CraftCMS with client-side rendering. 20–40 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
         import re as _re
-        from src.scrapers.fineandcountry import _get
-        from bs4 import BeautifulSoup
+        import json as _json
+        from src.scrapers.fineandcountry import _get, _HEADERS
+        import requests as _req
 
-        # First, load the base search page to see its structure and any JS-driven filter hints
-        base_resp = _get("https://www.fineandcountry.com/find-a-property/property-for-sale", timeout=15)
-        base_soup = BeautifulSoup(base_resp.text, "html.parser")
+        def _get_json(url, extra_headers=None, timeout=12):
+            """Try to get a JSON response, return (status, body_text, parsed_or_None)."""
+            api_key = os.environ.get("APIFY_API_KEY", "")
+            hdrs = dict(_HEADERS)
+            hdrs["Accept"] = "application/json, text/javascript, */*; q=0.01"
+            hdrs["X-Requested-With"] = "XMLHttpRequest"
+            if extra_headers:
+                hdrs.update(extra_headers)
+            for group in ("groups-RESIDENTIAL", "auto"):
+                proxy_url = f"http://{group}:{api_key}@proxy.apify.com:8000"
+                try:
+                    r = _req.get(url, headers=hdrs,
+                                 proxies={"http": proxy_url, "https": proxy_url},
+                                 timeout=timeout, verify=False)
+                    parsed = None
+                    try:
+                        parsed = r.json()
+                    except Exception:
+                        pass
+                    return r.status_code, r.text[:600], parsed
+                except Exception:
+                    pass
+            return None, None, None
 
-        # Extract ALL links on the search page that look like property listings
-        prop_links = []
-        for a in base_soup.find_all("a", href=True):
-            href = a["href"]
-            if any(k in href for k in ("/property/", "/details/", "/listing/", "/sale/", "/for-sale/")):
-                prop_links.append({"href": href, "text": a.get_text(strip=True)[:50]})
+        results = {}
 
-        # Look for any JSON data embedded in script tags
-        scripts_with_data = []
-        for s in base_soup.find_all("script"):
-            text = s.get_text()
-            if any(k in text for k in ("properties", "listings", "priceMin", "price_min", "propertyType")):
-                scripts_with_data.append(text[:400])
+        # 1. CraftCMS actions API — common patterns
+        craft_urls = [
+            "https://www.fineandcountry.com/actions/properties/search?location=hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+            "https://www.fineandcountry.com/actions/property-search/search?location=hitchin",
+            "https://www.fineandcountry.com/actions/search/results?location=hitchin&type=sale",
+            "https://www.fineandcountry.com/api/properties?location=hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
+            "https://www.fineandcountry.com/api/v1/properties?location=hitchin&sale=true",
+            "https://www.fineandcountry.com/find-a-property/property-for-sale.json?location=hitchin&minBedrooms=3",
+            "https://www.fineandcountry.com/find-a-property/property-for-sale?location=hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000&format=json",
+        ]
+        for url in craft_urls:
+            status, body, parsed = _get_json(url)
+            results[url] = {
+                "status": status,
+                "is_json": parsed is not None,
+                "snippet": body[:300] if body else None,
+                "top_keys": list(parsed.keys())[:10] if isinstance(parsed, dict) else None,
+                "list_len": len(parsed) if isinstance(parsed, list) else None,
+            }
 
-        # Look for form inputs that reveal filter param names
-        form_inputs = []
-        for inp in base_soup.find_all(["input", "select"], attrs={"name": True}):
-            form_inputs.append({"name": inp.get("name"), "type": inp.get("type"), "value": inp.get("value", "")[:50]})
+        # 2. Scrape the search page HTML and look for XHR URLs in JS
+        base_resp = _get("https://www.fineandcountry.com/find-a-property/property-for-sale?location=hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000", timeout=15)
+        xhr_hints = _re.findall(r'["\']((?:https?://[^"\']+|/[^"\']+)(?:api|search|properties|ajax)[^"\']{0,80})["\']', base_resp.text)
+        js_api_urls = list(dict.fromkeys(xhr_hints))[:20]
 
-        # Try a few filter URL variants based on what we now know the correct base URL is
-        filter_attempts = []
-        for url in [
-            "https://www.fineandcountry.com/find-a-property/property-for-sale?location=hitchin&min_beds=3&min_price=900000&max_price=1300000",
-            "https://www.fineandcountry.com/find-a-property/property-for-sale?q=hitchin&minBedrooms=3&minPrice=900000&maxPrice=1300000",
-            "https://www.fineandcountry.com/find-a-property/property-for-sale?location=hitchin",
-            "https://www.fineandcountry.com/find-a-property/property-for-sale/hitchin",
-            "https://www.fineandcountry.com/find-a-property/property-for-sale/hitchin/3-plus-bedrooms",
-        ]:
-            try:
-                r = _get(url, timeout=10)
-                filter_attempts.append({
-                    "url": url, "status": r.status_code,
-                    "snippet": r.text[300:700] if r.status_code == 200 else None,
-                })
-            except Exception as e:
-                filter_attempts.append({"url": url, "error": str(e)})
+        # 3. Look for initialData / window.__data or similar embedded JSON
+        window_data = {}
+        for pat in (r'window\.__(?:data|state|props|initialData)\s*=\s*(\{.{0,2000}?\});', r'var\s+initialData\s*=\s*(\{.{0,2000}?\});'):
+            wm = _re.search(pat, base_resp.text, _re.DOTALL)
+            if wm:
+                try:
+                    window_data[pat[:40]] = _json.loads(wm.group(1))
+                except Exception:
+                    window_data[pat[:40]] = wm.group(1)[:300]
 
         return jsonify({
+            "api_probe_results": results,
+            "xhr_hints_in_html": js_api_urls,
+            "window_data_found": window_data,
             "base_page_status": base_resp.status_code,
-            "property_links_on_page": prop_links[:20],
-            "form_inputs": form_inputs[:20],
-            "scripts_with_data": scripts_with_data[:3],
-            "filter_attempts": filter_attempts,
-            "base_snippet": base_resp.text[200:800],
         })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
