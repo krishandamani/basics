@@ -310,93 +310,92 @@ def api_test_zoopla():
 
 @app.route("/api/test-onthemarket")
 def api_test_onthemarket():
-    """Probe OTM API endpoints — tries 6 patterns to find the real JSON search route. 20–40 s."""
+    """Dig OTM JS bundle for API endpoint URL, + try subdomain / graphql. 20–40 s."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
+        import re as _re
         from src.scrapers.onthemarket import _get
-        import json as _json
 
-        base_params = "min-price=900000&max-price=1300000&min-bedrooms=3"
-        candidates = [
-            # Next.js API routes
-            ("GET_JSON", f"https://www.onthemarket.com/api/search/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}&sort-field=recent&page=1&frame-size=10"),
-            ("GET_JSON", f"https://www.onthemarket.com/api/properties/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}"),
-            ("GET_JSON", f"https://www.onthemarket.com/api/results/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}"),
-            # Same HTML URL but with Accept: application/json
-            ("GET_JSON", f"https://www.onthemarket.com/for-sale/property/hitchin/?{base_params}&sort=recent"),
-            # async-search variations
-            ("GET_JSON", f"https://www.onthemarket.com/async-search/results/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}"),
-            ("GET_JSON", f"https://www.onthemarket.com/search/?channel=property&search-type=for-sale&location-id=hitchin&{base_params}&format=json"),
-        ]
+        # 1. Fetch the manifest to find the main JS bundle hashes
+        manifest_resp = _get("https://www.onthemarket.com/assets/0e55a3d9/gzip/js/manifest.json", timeout=10)
+        manifest_info = {
+            "status": manifest_resp.status_code,
+            "snippet": manifest_resp.text[:500] if manifest_resp.status_code == 200 else None,
+        }
 
-        results = []
-        for method, url in candidates:
+        # 2. Try sitemap for search URL clues
+        sitemap_resp = _get("https://www.onthemarket.com/sitemap.xml", timeout=10)
+        sitemap_snippet = sitemap_resp.text[:800] if sitemap_resp.status_code == 200 else f"status {sitemap_resp.status_code}"
+
+        # 3. Try subdomain + GraphQL + other routes
+        extra_attempts = []
+        for url in [
+            "https://api.onthemarket.com/search?channel=property&search-type=for-sale&location-id=hitchin&min-price=900000&max-price=1300000&min-bedrooms=3",
+            "https://www.onthemarket.com/graphql",  # POST with empty body — just check if endpoint exists
+        ]:
             try:
-                resp = _get(url, timeout=12)
-                is_json = "application/json" in resp.headers.get("Content-Type", "")
-                try:
-                    data = resp.json()
-                    top_keys = list(data.keys()) if isinstance(data, dict) else f"list[{len(data)}]"
-                    props_count = len(data.get("properties") or data.get("results") or data.get("listings") or [])
-                except Exception:
-                    data = {}
-                    top_keys = []
-                    props_count = 0
-                results.append({
+                if "graphql" in url:
+                    import requests as _req
+                    r = _req.post(url, json={"query": "{properties{id}}"}, headers={"Content-Type": "application/json"}, timeout=8, verify=False)
+                else:
+                    r = _get(url, timeout=8)
+                extra_attempts.append({
                     "url": url,
-                    "status": resp.status_code,
-                    "content_type": resp.headers.get("Content-Type", ""),
-                    "is_json": is_json,
-                    "json_keys": top_keys,
-                    "properties_found": props_count,
-                    "snippet": resp.text[:300] if resp.status_code == 200 else None,
+                    "status": r.status_code,
+                    "content_type": r.headers.get("Content-Type", ""),
+                    "snippet": r.text[:200],
                 })
             except Exception as e:
-                results.append({"url": url, "error": str(e)})
+                extra_attempts.append({"url": url, "error": str(e)})
 
-        return jsonify({"attempts": results})
+        # 4. Fetch the HTML page and look for API URLs embedded in scripts
+        html_resp = _get("https://www.onthemarket.com/for-sale/property/hitchin/?min-price=900000&max-price=1300000&min-bedrooms=3", timeout=15)
+        api_urls_in_html = list(set(_re.findall(r'https?://[^\s"\'<>]+(?:api|search|async|properties)[^\s"\'<>]*', html_resp.text)))[:20]
+        script_srcs = _re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html_resp.text)[:10]
+
+        return jsonify({
+            "manifest": manifest_info,
+            "sitemap_snippet": sitemap_snippet,
+            "extra_attempts": extra_attempts,
+            "api_urls_found_in_html": api_urls_in_html,
+            "script_src_tags": script_srcs,
+        })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
 
 
 @app.route("/api/test-fineandcountry")
 def api_test_fineandcountry():
-    """F&C uses CraftCMS with path-based URLs (robots.txt blocks ?query). Probe clean paths. 20–40 s."""
+    """Parse F&C homepage to find property search nav links and featured card data."""
     if not os.environ.get("APIFY_API_KEY"):
         return jsonify({"error": "APIFY_API_KEY not set"}), 400
     try:
         from src.scrapers.fineandcountry import _get, _parse_html_cards
+        from bs4 import BeautifulSoup
 
-        # CraftCMS sites use URL segments, not query strings
-        candidates = [
-            "https://www.fineandcountry.com/properties/for-sale/hitchin",
-            "https://www.fineandcountry.com/properties/for-sale/hertfordshire",
-            "https://www.fineandcountry.com/property-for-sale/hitchin",
-            "https://www.fineandcountry.com/property-for-sale/hertfordshire",
-            "https://www.fineandcountry.com/residential-for-sale/hitchin",
-            "https://www.fineandcountry.com/residential-for-sale/hertfordshire",
-            "https://www.fineandcountry.com/for-sale/hitchin",
-            "https://www.fineandcountry.com/for-sale/hertfordshire",
-            "https://www.fineandcountry.com/en/for-sale/hitchin",
-            "https://www.fineandcountry.com/en-gb/properties/for-sale/hitchin",
-            # Try the homepage to see what links/paths exist
-            "https://www.fineandcountry.com/",
-        ]
-        results = []
-        for url in candidates:
-            try:
-                resp = _get(url, timeout=12)
-                cards = _parse_html_cards(resp.text, "sale") if resp.status_code == 200 else []
-                results.append({
-                    "url": url,
-                    "status": resp.status_code,
-                    "cards_found": len(cards),
-                    "snippet": resp.text[200:800] if resp.status_code == 200 else None,
-                })
-            except Exception as e:
-                results.append({"url": url, "error": str(e)})
-        return jsonify({"note": "CraftCMS — path-based URLs only", "attempts": results})
+        resp = _get("https://www.fineandcountry.com/", timeout=15)
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # All links containing property/sale/search/residential/listings keywords
+        property_links = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            text = a.get_text(strip=True)
+            keywords = ("sale", "property", "search", "residential", "listing", "find", "buy")
+            if any(k in href.lower() or k in text.lower() for k in keywords):
+                full = href if href.startswith("http") else f"https://www.fineandcountry.com{href}"
+                property_links.append({"text": text[:60], "href": full})
+
+        # The 6 cards the scraper found
+        cards = _parse_html_cards(resp.text, "sale")
+        card_data = [{"title": p.title[:80], "price": p.price, "url": p.url} for p in cards]
+
+        return jsonify({
+            "homepage_status": resp.status_code,
+            "property_nav_links": property_links[:30],
+            "cards_found": card_data,
+        })
     except Exception as exc:
         return jsonify({"error": str(exc), "type": type(exc).__name__}), 500
 
