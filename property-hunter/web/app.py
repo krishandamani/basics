@@ -18,12 +18,27 @@ from flask import Flask, jsonify, render_template, request, url_for
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.database import (
-    DB_PATH, get_web_properties, hide_property,
+    DB_PATH, get_web_properties, has_any_properties, hide_property,
     init_db, init_web_tables, toggle_favourite,
 )
 
 app = Flask(__name__)
 app.secret_key = "property-hunter-local"
+
+
+@app.template_global()
+def url_with(**kwargs):
+    """Return current page URL with the given query params overridden/removed."""
+    from urllib.parse import urlencode
+    params = {k: v for k, v in request.args.items()}
+    for k, v in kwargs.items():
+        if v is None or v == "":
+            params.pop(k, None)
+        else:
+            params[k] = str(v)
+    qs = urlencode(params)
+    return f"{request.path}?{qs}" if qs else request.path
+
 
 # ── Background search state ───────────────────────────────────────────────────
 
@@ -271,6 +286,7 @@ def index():
         total_count         = len(all_props),
         active_filter_count = active_filter_count,
         base_params         = base_params,
+        has_results         = has_any_properties(),
     )
 
 

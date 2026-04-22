@@ -6,71 +6,68 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <!-- ── Map filter bar ─────────────────────────────────────────────────────── -->
-<form method="get" action="/map" id="map-filter-form"
-      class="flex flex-wrap gap-2 items-center mb-3">
+<div class="flex flex-wrap gap-2 items-center mb-3">
 
-  <!-- Preserve all current filters as hidden inputs for button groups -->
-  <input type="hidden" id="mf-listing_type" name="listing_type" value="{{ map_filters.listing_type }}">
-  <input type="hidden" id="mf-min_beds"     name="min_beds"     value="{{ map_filters.min_beds }}">
-  <input type="hidden" id="mf-property_type" name="property_type" value="{{ map_filters.property_type }}">
-  <input type="hidden" id="mf-source"       name="source"       value="{{ map_filters.source }}">
-  <input type="hidden" id="mf-min_price"    name="min_price"    value="{{ map_filters.min_price }}">
-  <input type="hidden" id="mf-max_price"    name="max_price"    value="{{ map_filters.max_price }}">
-
-  <!-- Sale / Rent chips -->
+  <!-- Sale / Rent chips — plain links, no JS -->
   <div class="flex bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm font-medium">
     {% for val, label in [('', 'Any'), ('sale', 'Sale'), ('rent', 'Rent')] %}
-    <button type="button" onclick="setMapFilter('listing_type','{{ val }}')"
-            class="px-3 py-2 border-r border-slate-200 last:border-r-0 transition-colors
-                   {{ 'bg-indigo-600 text-white' if map_filters.listing_type == val else 'text-slate-600 hover:bg-slate-50' }}">
+    <a href="{{ url_with(listing_type=val) }}"
+       class="px-3 py-2 border-r border-slate-200 last:border-r-0 transition-colors
+              {{ 'bg-indigo-600 text-white' if map_filters.listing_type == val else 'text-slate-600 hover:bg-slate-50' }}">
       {{ label }}
-    </button>
+    </a>
     {% endfor %}
   </div>
 
   <!-- Bed count chips -->
   <div class="flex bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm font-medium">
     {% for val, label in [('', 'Beds'), ('2', '2+'), ('3', '3+'), ('4', '4+'), ('5', '5+')] %}
-    <button type="button" onclick="setMapFilter('min_beds','{{ val }}')"
-            class="px-3 py-2 border-r border-slate-200 last:border-r-0 transition-colors
-                   {{ 'bg-indigo-600 text-white' if map_filters.min_beds == val else 'text-slate-600 hover:bg-slate-50' }}">
+    <a href="{{ url_with(min_beds=val) }}"
+       class="px-3 py-2 border-r border-slate-200 last:border-r-0 transition-colors
+              {{ 'bg-indigo-600 text-white' if map_filters.min_beds == val else 'text-slate-600 hover:bg-slate-50' }}">
       {{ label }}
-    </button>
+    </a>
     {% endfor %}
   </div>
 
-  <!-- Property type -->
-  <select onchange="setMapFilter('property_type', this.value)"
-          class="text-sm border rounded-xl px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
-                 {{ 'border-indigo-400 bg-indigo-50 text-indigo-700 font-semibold' if map_filters.property_type else 'border-slate-200 bg-white text-slate-600' }}">
-    <option value="">All types</option>
-    {% for pt in ['flat', 'house', 'terraced', 'detached', 'semi-detached', 'bungalow'] %}
-    <option value="{{ pt }}" {% if map_filters.property_type == pt %}selected{% endif %}>{{ pt | title }}</option>
-    {% endfor %}
-  </select>
+  <!-- Property type — select submits a form that preserves all current params -->
+  <form method="get" action="/map" class="contents" id="map-filter-form">
+    <input type="hidden" name="listing_type" value="{{ map_filters.listing_type }}">
+    <input type="hidden" name="min_beds"     value="{{ map_filters.min_beds }}">
+    <input type="hidden" name="source"       value="{{ map_filters.source }}">
+    <input type="hidden" name="min_price"    value="{{ map_filters.min_price }}">
+    <input type="hidden" name="max_price"    value="{{ map_filters.max_price }}">
 
-  <!-- Price range -->
-  <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-1.5">
-    <span class="text-xs text-slate-400 font-medium">£</span>
-    <input type="number" placeholder="Min" min="0" value="{{ map_filters.min_price }}"
-           class="w-20 text-sm text-slate-700 placeholder-slate-300 focus:outline-none bg-transparent"
-           onchange="document.getElementById('mf-min_price').value=this.value">
-    <span class="text-xs text-slate-300 mx-1">–</span>
-    <input type="number" placeholder="Max" min="0" value="{{ map_filters.max_price }}"
-           class="w-20 text-sm text-slate-700 placeholder-slate-300 focus:outline-none bg-transparent"
-           onchange="document.getElementById('mf-max_price').value=this.value">
-    <button type="submit" class="ml-1 text-xs bg-indigo-600 text-white px-2 py-1 rounded-lg hover:bg-indigo-700">Go</button>
-  </div>
+    <select name="property_type" onchange="this.form.submit()"
+            class="text-sm border rounded-xl px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
+                   {{ 'border-indigo-400 bg-indigo-50 text-indigo-700 font-semibold' if map_filters.property_type else 'border-slate-200 bg-white text-slate-600' }}">
+      <option value="">All types</option>
+      {% for pt in ['flat', 'house', 'terraced', 'detached', 'semi-detached', 'bungalow'] %}
+      <option value="{{ pt }}" {% if map_filters.property_type == pt %}selected{% endif %}>{{ pt | title }}</option>
+      {% endfor %}
+    </select>
 
-  <!-- Source -->
-  <select onchange="setMapFilter('source', this.value)"
-          class="text-sm border rounded-xl px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
-                 {{ 'border-indigo-400 bg-indigo-50 text-indigo-700 font-semibold' if map_filters.source else 'border-slate-200 bg-white text-slate-600' }}">
-    <option value="">All sites</option>
-    <option value="rightmove"   {% if map_filters.source == 'rightmove'   %}selected{% endif %}>Rightmove</option>
-    <option value="onthemarket" {% if map_filters.source == 'onthemarket' %}selected{% endif %}>OnTheMarket</option>
-    <option value="openrent"    {% if map_filters.source == 'openrent'    %}selected{% endif %}>OpenRent</option>
-  </select>
+    <!-- Source -->
+    <select name="source" onchange="this.form.submit()"
+            class="text-sm border rounded-xl px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
+                   {{ 'border-indigo-400 bg-indigo-50 text-indigo-700 font-semibold' if map_filters.source else 'border-slate-200 bg-white text-slate-600' }}">
+      <option value="">All sites</option>
+      <option value="rightmove"   {% if map_filters.source == 'rightmove'   %}selected{% endif %}>Rightmove</option>
+      <option value="onthemarket" {% if map_filters.source == 'onthemarket' %}selected{% endif %}>OnTheMarket</option>
+      <option value="openrent"    {% if map_filters.source == 'openrent'    %}selected{% endif %}>OpenRent</option>
+    </select>
+
+    <!-- Price range -->
+    <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-1.5">
+      <span class="text-xs text-slate-400 font-medium">£</span>
+      <input type="number" name="min_price" placeholder="Min" min="0" value="{{ map_filters.min_price }}"
+             class="w-20 text-sm text-slate-700 placeholder-slate-300 focus:outline-none bg-transparent">
+      <span class="text-xs text-slate-300 mx-1">–</span>
+      <input type="number" name="max_price" placeholder="Max" min="0" value="{{ map_filters.max_price }}"
+             class="w-20 text-sm text-slate-700 placeholder-slate-300 focus:outline-none bg-transparent">
+      <button type="submit" class="ml-1 text-xs bg-indigo-600 text-white px-2 py-1 rounded-lg hover:bg-indigo-700">Go</button>
+    </div>
+  </form>
 
   <div class="flex items-center gap-3 ml-auto">
     <span class="text-sm text-slate-500 font-medium">
@@ -82,7 +79,7 @@
     <a href="/" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">← List</a>
   </div>
 
-</form>
+</div>
 
 <!-- Source legend -->
 <div class="flex flex-wrap gap-3 mb-3">
@@ -107,7 +104,6 @@
 
 <script>
 const POINTS = {{ points | tojson }};
-
 const SOURCE_COLORS = {
   rightmove:   '#00703c',
   zoopla:      '#7c3aed',
@@ -116,11 +112,6 @@ const SOURCE_COLORS = {
   savills:     '#000',
   knightfrank: '#8b0000',
 };
-
-function setMapFilter(name, value) {
-  document.getElementById('mf-' + name).value = value;
-  document.getElementById('map-filter-form').submit();
-}
 
 const map = L.map('map');
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

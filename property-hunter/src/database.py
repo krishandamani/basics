@@ -369,6 +369,13 @@ def set_health_alert_sent(search_id: str) -> None:
             )
 
 
+def has_any_properties() -> bool:
+    """Return True if at least one property is stored (used to show/hide filter bar)."""
+    with _db() as conn:
+        row = _x(conn, "SELECT 1 FROM properties LIMIT 1").fetchone()
+        return row is not None
+
+
 def hide_property(property_id: str) -> None:
     """Mark a property as hidden so it won't appear in the feed."""
     with _db() as conn:
