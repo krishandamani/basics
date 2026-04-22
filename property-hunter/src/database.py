@@ -82,8 +82,10 @@ def init_db() -> None:
                 commute_minutes INTEGER,
                 nearest_school  TEXT,
                 school_rating   TEXT,
-                agent_name      TEXT,
-                first_seen      TEXT
+                agent_name            TEXT,
+                nearest_station       TEXT,
+                station_distance_miles REAL,
+                first_seen            TEXT
             )
         """)
         # Add columns that may be missing from older schemas (safe to run repeatedly)
@@ -92,6 +94,8 @@ def init_db() -> None:
             ("school_rating", "TEXT"),
             ("previous_price", "INTEGER"),
             ("agent_name", "TEXT"),
+            ("nearest_station", "TEXT"),
+            ("station_distance_miles", "REAL"),
         ]:
             try:
                 _x(conn, f"ALTER TABLE properties ADD COLUMN {col} {defn}")
@@ -175,6 +179,7 @@ def save_property(prop: Property) -> None:
         prop.title, prop.postcode, prop.image_url,
         prop.epc_rating, prop.crime_rate, prop.commute_minutes,
         prop.nearest_school, prop.school_rating, prop.agent_name,
+        prop.nearest_station, prop.station_distance_miles,
         prop.first_seen.isoformat(),
     )
     with _db() as conn:
@@ -184,26 +189,29 @@ def save_property(prop: Property) -> None:
                     (id, source, listing_type, url, price, previous_price,
                      bedrooms, property_type, address, title, postcode, image_url,
                      epc_rating, crime_rate, commute_minutes,
-                     nearest_school, school_rating, agent_name, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     nearest_school, school_rating, agent_name,
+                     nearest_station, station_distance_miles, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (id) DO UPDATE SET
-                    source          = EXCLUDED.source,
-                    listing_type    = EXCLUDED.listing_type,
-                    url             = EXCLUDED.url,
-                    price           = EXCLUDED.price,
-                    previous_price  = EXCLUDED.previous_price,
-                    bedrooms        = EXCLUDED.bedrooms,
-                    property_type   = EXCLUDED.property_type,
-                    address         = EXCLUDED.address,
-                    title           = EXCLUDED.title,
-                    postcode        = EXCLUDED.postcode,
-                    image_url       = EXCLUDED.image_url,
-                    epc_rating      = EXCLUDED.epc_rating,
-                    crime_rate      = EXCLUDED.crime_rate,
-                    commute_minutes = EXCLUDED.commute_minutes,
-                    nearest_school  = EXCLUDED.nearest_school,
-                    school_rating   = EXCLUDED.school_rating,
-                    agent_name      = EXCLUDED.agent_name
+                    source                 = EXCLUDED.source,
+                    listing_type           = EXCLUDED.listing_type,
+                    url                    = EXCLUDED.url,
+                    price                  = EXCLUDED.price,
+                    previous_price         = EXCLUDED.previous_price,
+                    bedrooms               = EXCLUDED.bedrooms,
+                    property_type          = EXCLUDED.property_type,
+                    address                = EXCLUDED.address,
+                    title                  = EXCLUDED.title,
+                    postcode               = EXCLUDED.postcode,
+                    image_url              = EXCLUDED.image_url,
+                    epc_rating             = EXCLUDED.epc_rating,
+                    crime_rate             = EXCLUDED.crime_rate,
+                    commute_minutes        = EXCLUDED.commute_minutes,
+                    nearest_school         = EXCLUDED.nearest_school,
+                    school_rating          = EXCLUDED.school_rating,
+                    agent_name             = EXCLUDED.agent_name,
+                    nearest_station        = EXCLUDED.nearest_station,
+                    station_distance_miles = EXCLUDED.station_distance_miles
             """, params)
         else:
             _x(conn, """
@@ -211,8 +219,9 @@ def save_property(prop: Property) -> None:
                     (id, source, listing_type, url, price, previous_price,
                      bedrooms, property_type, address, title, postcode, image_url,
                      epc_rating, crime_rate, commute_minutes,
-                     nearest_school, school_rating, agent_name, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     nearest_school, school_rating, agent_name,
+                     nearest_station, station_distance_miles, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, params)
 
 

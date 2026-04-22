@@ -1,9 +1,9 @@
-"""Optional enrichment — adds crime stats, EPC ratings, and nearest school
-to matched properties. All sources are free public UK APIs.
-Each enrichment is attempted independently; if any call fails, the property
-is still included without that field.
+"""Optional enrichment — adds crime stats, EPC ratings, nearest school,
+and nearest railway station to matched properties. All sources are free
+public UK APIs. Each enrichment is independent; failures are silent.
 """
 
+import math
 import re
 import requests
 
@@ -137,10 +137,60 @@ def _enrich_commute(prop: Property) -> Property:
     return prop
 
 
+def _haversine_miles(lat1, lng1, lat2, lng2) -> float:
+    R = 3958.8  # Earth radius in miles
+    d_lat = math.radians(lat2 - lat1)
+    d_lng = math.radians(lng2 - lng1)
+    a = math.sin(d_lat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lng / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+def _enrich_station(prop: Property) -> Property:
+    """Find the nearest UK railway station via OpenStreetMap Overpass API (free, no key).
+
+    Searches within 3 km of the property's postcode lat/lng. Only considers
+    nodes tagged railway=station (excludes subway/metro-only nodes where possible).
+    """
+    if not prop.postcode or prop.nearest_station:
+        return prop
+    lat, lng = _get_lat_lng(prop.postcode)
+    if not lat:
+        return prop
+    try:
+        query = (
+            f"[out:json][timeout:6];"
+            f"node(around:3000,{lat},{lng})[railway=station][!'subway'];out body;"
+        )
+        r = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data={"data": query},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return prop
+        elements = r.json().get("elements", [])
+        if not elements:
+            return prop
+
+        best = min(
+            elements,
+            key=lambda e: _haversine_miles(lat, lng, e["lat"], e["lon"]),
+        )
+        dist = _haversine_miles(lat, lng, best["lat"], best["lon"])
+        name = best.get("tags", {}).get("name", "")
+        if name and dist < 5:
+            prop.nearest_station = name
+            prop.station_distance_miles = round(dist, 1)
+    except Exception:
+        pass
+    return prop
+
+
 def enrich(prop: Property) -> Property:
     """Run all enrichments. Safe to call even if no postcode is available."""
     prop = _enrich_crime(prop)
     prop = _enrich_epc(prop)
     prop = _enrich_school(prop)
     prop = _enrich_commute(prop)
+    prop = _enrich_station(prop)
     return prop

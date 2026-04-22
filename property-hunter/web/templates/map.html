@@ -5,31 +5,102 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-base font-semibold text-slate-700">
-    {{ points | length }} propert{{ 'y' if points | length == 1 else 'ies' }} on map
-  </h1>
-  <a href="/" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">← All properties</a>
-</div>
+<!-- ── Map filter bar ─────────────────────────────────────────────────────── -->
+<form method="get" action="/map" id="map-filter-form"
+      class="flex flex-wrap gap-2 items-center mb-3">
+
+  <!-- Preserve all current filters as hidden inputs for button groups -->
+  <input type="hidden" id="mf-listing_type" name="listing_type" value="{{ map_filters.listing_type }}">
+  <input type="hidden" id="mf-min_beds"     name="min_beds"     value="{{ map_filters.min_beds }}">
+  <input type="hidden" id="mf-property_type" name="property_type" value="{{ map_filters.property_type }}">
+  <input type="hidden" id="mf-source"       name="source"       value="{{ map_filters.source }}">
+  <input type="hidden" id="mf-min_price"    name="min_price"    value="{{ map_filters.min_price }}">
+  <input type="hidden" id="mf-max_price"    name="max_price"    value="{{ map_filters.max_price }}">
+
+  <!-- Sale / Rent chips -->
+  <div class="flex bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm font-medium">
+    {% for val, label in [('', 'Any'), ('sale', 'Sale'), ('rent', 'Rent')] %}
+    <button type="button" onclick="setMapFilter('listing_type','{{ val }}')"
+            class="px-3 py-2 border-r border-slate-200 last:border-r-0 transition-colors
+                   {{ 'bg-indigo-600 text-white' if map_filters.listing_type == val else 'text-slate-600 hover:bg-slate-50' }}">
+      {{ label }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- Bed count chips -->
+  <div class="flex bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm font-medium">
+    {% for val, label in [('', 'Beds'), ('2', '2+'), ('3', '3+'), ('4', '4+'), ('5', '5+')] %}
+    <button type="button" onclick="setMapFilter('min_beds','{{ val }}')"
+            class="px-3 py-2 border-r border-slate-200 last:border-r-0 transition-colors
+                   {{ 'bg-indigo-600 text-white' if map_filters.min_beds == val else 'text-slate-600 hover:bg-slate-50' }}">
+      {{ label }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- Property type -->
+  <select onchange="setMapFilter('property_type', this.value)"
+          class="text-sm border rounded-xl px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
+                 {{ 'border-indigo-400 bg-indigo-50 text-indigo-700 font-semibold' if map_filters.property_type else 'border-slate-200 bg-white text-slate-600' }}">
+    <option value="">All types</option>
+    {% for pt in ['flat', 'house', 'terraced', 'detached', 'semi-detached', 'bungalow'] %}
+    <option value="{{ pt }}" {% if map_filters.property_type == pt %}selected{% endif %}>{{ pt | title }}</option>
+    {% endfor %}
+  </select>
+
+  <!-- Price range -->
+  <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-1.5">
+    <span class="text-xs text-slate-400 font-medium">£</span>
+    <input type="number" placeholder="Min" min="0" value="{{ map_filters.min_price }}"
+           class="w-20 text-sm text-slate-700 placeholder-slate-300 focus:outline-none bg-transparent"
+           onchange="document.getElementById('mf-min_price').value=this.value">
+    <span class="text-xs text-slate-300 mx-1">–</span>
+    <input type="number" placeholder="Max" min="0" value="{{ map_filters.max_price }}"
+           class="w-20 text-sm text-slate-700 placeholder-slate-300 focus:outline-none bg-transparent"
+           onchange="document.getElementById('mf-max_price').value=this.value">
+    <button type="submit" class="ml-1 text-xs bg-indigo-600 text-white px-2 py-1 rounded-lg hover:bg-indigo-700">Go</button>
+  </div>
+
+  <!-- Source -->
+  <select onchange="setMapFilter('source', this.value)"
+          class="text-sm border rounded-xl px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
+                 {{ 'border-indigo-400 bg-indigo-50 text-indigo-700 font-semibold' if map_filters.source else 'border-slate-200 bg-white text-slate-600' }}">
+    <option value="">All sites</option>
+    <option value="rightmove"   {% if map_filters.source == 'rightmove'   %}selected{% endif %}>Rightmove</option>
+    <option value="onthemarket" {% if map_filters.source == 'onthemarket' %}selected{% endif %}>OnTheMarket</option>
+    <option value="openrent"    {% if map_filters.source == 'openrent'    %}selected{% endif %}>OpenRent</option>
+  </select>
+
+  <div class="flex items-center gap-3 ml-auto">
+    <span class="text-sm text-slate-500 font-medium">
+      {{ points | length }} on map
+    </span>
+    {% if active_map_filter_count %}
+    <a href="/map" class="text-sm text-slate-400 hover:text-red-500 transition-colors">× Clear</a>
+    {% endif %}
+    <a href="/" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">← List</a>
+  </div>
+
+</form>
 
 <!-- Source legend -->
-<div class="flex flex-wrap gap-3 mb-4">
-  {% for name, color in [('Rightmove','#00703c'),('Zoopla','#7c3aed'),('OnTheMarket','#c2410c'),('OpenRent','#1d4ed8')] %}
+<div class="flex flex-wrap gap-3 mb-3">
+  {% for name, color in [('Rightmove','#00703c'),('OnTheMarket','#c2410c'),('OpenRent','#1d4ed8'),('Zoopla','#7c3aed')] %}
   <div class="flex items-center gap-1.5 text-xs text-slate-600">
-    <span class="w-3 h-3 rounded-full inline-block" style="background:{{ color }}"></span>
-    {{ name }}
+    <span class="w-3 h-3 rounded-full inline-block" style="background:{{ color }}"></span>{{ name }}
   </div>
   {% endfor %}
 </div>
 
 <div id="map"
      class="w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200"
-     style="height: calc(100vh - 220px); min-height: 400px;"></div>
+     style="height: calc(100vh - 260px); min-height: 400px;"></div>
 
 {% if not points %}
-<div class="absolute inset-x-0 flex justify-center" style="margin-top:-200px">
-  <div class="bg-white/95 backdrop-blur rounded-xl px-6 py-4 shadow text-slate-500 text-sm">
-    No properties with postcode data yet — run a search first.
+<div class="flex justify-center mt-6">
+  <div class="bg-white rounded-xl px-6 py-4 shadow text-slate-500 text-sm">
+    No properties with postcode data — run a search or adjust filters.
   </div>
 </div>
 {% endif %}
@@ -42,17 +113,23 @@ const SOURCE_COLORS = {
   zoopla:      '#7c3aed',
   onthemarket: '#c2410c',
   openrent:    '#1d4ed8',
+  savills:     '#000',
+  knightfrank: '#8b0000',
 };
 
-const map = L.map('map');
+function setMapFilter(name, value) {
+  document.getElementById('mf-' + name).value = value;
+  document.getElementById('map-filter-form').submit();
+}
 
+const map = L.map('map');
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
   maxZoom: 19,
 }).addTo(map);
 
 if (POINTS.length === 0) {
-  map.setView([51.505, -0.09], 10);
+  map.setView([51.8, -0.2], 10);
 } else {
   const markers = L.featureGroup();
 
@@ -60,31 +137,39 @@ if (POINTS.length === 0) {
     const color = SOURCE_COLORS[p.source] || '#64748b';
     const price = p.price
       ? `£${p.price.toLocaleString()}${p.listing_type === 'rent' ? '/mo' : ''}`
-      : 'Price TBC';
+      : 'POA';
+
+    const stationHtml = p.nearest_station
+      ? `<div style="font-size:11px;color:#6d28d9;margin:4px 0 2px">🚉 ${p.nearest_station}${p.station_distance_miles ? ' · ' + p.station_distance_miles + 'mi' : ''}</div>`
+      : '';
+    const commuteHtml = p.commute_minutes
+      ? `<div style="font-size:11px;color:#3730a3;margin:2px 0">🚂 ${p.commute_minutes}min to London</div>`
+      : '';
+    const epcHtml = p.epc_rating
+      ? `<span style="background:#d1fae5;color:#065f46;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:600">EPC ${p.epc_rating}</span> `
+      : '';
 
     const marker = L.circleMarker([p.lat, p.lng], {
-      radius: 9,
-      fillColor: color,
-      color: 'white',
-      weight: 2,
-      fillOpacity: 0.92,
+      radius: 9, fillColor: color, color: 'white', weight: 2, fillOpacity: 0.92,
     });
 
     marker.bindPopup(`
-      <div style="width:220px; font-family:system-ui,sans-serif">
-        ${p.image_url
-          ? `<img src="${p.image_url}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:10px">`
-          : ''}
-        <div style="font-size:18px;font-weight:700;color:#0f172a">${price}</div>
-        <div style="font-size:12px;color:#64748b;margin:3px 0 8px">${p.address || ''}</div>
-        ${p.bedrooms ? `<span style="background:#f1f5f9;border-radius:999px;padding:2px 10px;font-size:11px;color:#475569">${p.bedrooms} bed</span>` : ''}
+      <div style="width:230px;font-family:system-ui,sans-serif">
+        ${p.image_url ? `<img src="${p.image_url}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:10px">` : ''}
+        <div style="font-size:19px;font-weight:700;color:#0f172a">${price}</div>
+        <div style="font-size:12px;color:#64748b;margin:2px 0 6px">${p.address || ''}</div>
+        <div style="margin-bottom:6px">
+          ${p.bedrooms ? `<span style="background:#f1f5f9;border-radius:999px;padding:2px 10px;font-size:11px;color:#475569;margin-right:4px">${p.bedrooms} bed</span>` : ''}
+          ${p.property_type ? `<span style="background:#f1f5f9;border-radius:999px;padding:2px 10px;font-size:11px;color:#475569">${p.property_type}</span>` : ''}
+        </div>
+        ${stationHtml}${commuteHtml}${epcHtml ? '<div style="margin-top:4px">' + epcHtml + '</div>' : ''}
         <a href="${p.url}" target="_blank"
-           style="display:block;margin-top:12px;background:#4f46e5;color:white;text-align:center;
+           style="display:block;margin-top:10px;background:#4f46e5;color:#fff;text-align:center;
                   padding:8px;border-radius:10px;font-size:13px;font-weight:500;text-decoration:none">
           View listing →
         </a>
       </div>
-    `, { maxWidth: 240 });
+    `, { maxWidth: 250 });
 
     marker.addTo(markers);
   });

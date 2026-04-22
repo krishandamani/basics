@@ -237,7 +237,22 @@ def favourites():
 
 @app.route("/map")
 def map_view():
-    props = get_web_properties(limit=500)
+    listing_type  = request.args.get("listing_type", "")
+    min_price_raw = request.args.get("min_price", "")
+    max_price_raw = request.args.get("max_price", "")
+    min_beds_raw  = request.args.get("min_beds", "")
+    property_type = request.args.get("property_type", "")
+    source        = request.args.get("source", "")
+
+    props = get_web_properties(
+        listing_type  = listing_type,
+        min_price     = _parse_int(min_price_raw),
+        max_price     = _parse_int(max_price_raw),
+        min_bedrooms  = _parse_int(min_beds_raw),
+        property_type = property_type,
+        source        = source,
+        limit         = 500,
+    )
     postcodes = list({dict(p)["postcode"] for p in props if dict(p).get("postcode")})
     geo = _geocode(postcodes)
 
@@ -252,16 +267,33 @@ def map_view():
                 "price": d["price"],
                 "address": d["address"] or d["title"],
                 "bedrooms": d["bedrooms"],
+                "property_type": d.get("property_type") or "",
                 "source": d["source"],
                 "listing_type": d["listing_type"],
                 "url": d["url"],
                 "image_url": d.get("image_url") or "",
+                "nearest_station": d.get("nearest_station") or "",
+                "station_distance_miles": d.get("station_distance_miles"),
+                "commute_minutes": d.get("commute_minutes"),
+                "epc_rating": d.get("epc_rating") or "",
             })
+
+    map_filters = {
+        "listing_type": listing_type,
+        "min_price": min_price_raw,
+        "max_price": max_price_raw,
+        "min_beds": min_beds_raw,
+        "property_type": property_type,
+        "source": source,
+    }
+    active_map_filter_count = sum(bool(v) for v in map_filters.values())
 
     return render_template(
         "map.html",
-        points       = points,
-        search_state = _search_state_for_template(),
+        points                 = points,
+        map_filters            = map_filters,
+        active_map_filter_count = active_map_filter_count,
+        search_state           = _search_state_for_template(),
     )
 
 
