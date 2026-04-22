@@ -55,6 +55,9 @@
       <a href="/" class="text-sm font-medium px-3 py-2 rounded-lg
         {{ 'bg-indigo-50 text-indigo-700' if request.path == '/' else 'text-slate-600 hover:bg-slate-100' }}
         transition-colors">All</a>
+      <a href="/recommended" class="text-sm font-medium px-3 py-2 rounded-lg
+        {{ 'bg-amber-50 text-amber-700' if request.path == '/recommended' else 'text-slate-600 hover:bg-slate-100' }}
+        transition-colors">⭐ Picks</a>
       <a href="/map" class="text-sm font-medium px-3 py-2 rounded-lg
         {{ 'bg-indigo-50 text-indigo-700' if request.path == '/map' else 'text-slate-600 hover:bg-slate-100' }}
         transition-colors">Map</a>

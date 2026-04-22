@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Top Picks — Property Hunter{% endblock %}
+
+{% block content %}
+
+<!-- ── Header + type filter ───────────────────────────────────────────────── -->
+<div class="flex flex-wrap items-center gap-3 mb-5">
+  <div>
+    <h1 class="text-lg font-bold text-slate-800">⭐ Top Picks</h1>
+    <p class="text-sm text-slate-500 mt-0.5">
+      Scored on school quality, crime, EPC, commute and station distance.
+    </p>
+  </div>
+  <div class="ml-auto flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+    {% for val, label in [('', 'All'), ('sale', 'Sale'), ('rent', 'Rent')] %}
+    <a href="{{ url_for('recommended', listing_type=val) }}"
+       class="text-sm font-medium px-3 py-1.5 rounded-lg transition-colors
+              {{ 'bg-amber-500 text-white shadow-sm' if listing_type == val else 'text-slate-500 hover:bg-slate-50' }}">
+      {{ label }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not properties %}
+<div class="text-center py-20">
+  <div class="text-6xl mb-4 opacity-40">🔍</div>
+  <h2 class="text-xl font-semibold text-slate-700 mb-2">No scored properties yet</h2>
+  <p class="text-slate-500 mb-6 max-w-sm mx-auto">
+    Run a search first. Properties get scored once they're enriched with school,
+    crime, EPC, commute and station data.
+  </p>
+  <a href="/"
+     class="inline-block bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-medium transition-colors">
+    Browse all properties
+  </a>
+</div>
+
+{% else %}
+<!-- ── Ranked grid ─────────────────────────────────────────────────────────── -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for p in properties %}
+  <div class="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md
+              transition-all duration-200 flex flex-col"
+       id="card-{{ p.id }}">
+
+    <!-- Photo -->
+    <div class="relative bg-gradient-to-br from-slate-100 to-slate-200"
+         style="aspect-ratio:16/9; overflow:hidden;">
+      {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="{{ p.title }}"
+           class="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+           loading="lazy">
+      {% else %}
+      <div class="w-full h-full flex items-center justify-center">
+        <span class="text-5xl opacity-20 select-none">🏡</span>
+      </div>
+      {% endif %}
+
+      <!-- Rank badge -->
+      <span class="absolute top-3 left-3 bg-amber-400 text-amber-900 text-xs font-black
+                   px-2.5 py-1 rounded-full shadow-sm tracking-wide">
+        #{{ loop.index }}
+      </span>
+
+      <!-- Source badge -->
+      <span class="absolute top-3 right-3 text-xs font-semibold
+                   px-2.5 py-1 rounded-full src-{{ p.source }} shadow-sm">
+        {{ p.source | title }}
+      </span>
+    </div>
+
+    <!-- Card body -->
+    <div class="p-4 flex flex-col flex-1">
+
+      <!-- Score reasons (why this is recommended) -->
+      <div class="flex flex-wrap gap-1 mb-3 pb-2 border-b border-slate-100">
+        {% for reason in p.reasons %}
+        <span class="text-xs bg-amber-50 text-amber-800 border border-amber-100
+                     px-2 py-0.5 rounded-full font-medium">{{ reason }}</span>
+        {% endfor %}
+      </div>
+
+      <!-- Price + listing type -->
+      <div class="flex items-start justify-between gap-2 mb-1">
+        <div class="min-w-0">
+          <div class="flex items-baseline gap-2 flex-wrap">
+            <span class="text-2xl font-bold text-slate-900 leading-tight">
+              {% if p.price %}
+                £{{ '{:,}'.format(p.price) }}{% if p.listing_type == 'rent' %}<span class="text-sm font-normal text-slate-400">/mo</span>{% endif %}
+              {% else %}
+                <span class="text-slate-400 text-base font-medium">POA</span>
+              {% endif %}
+            </span>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full type-{{ p.listing_type }}">
+              {{ 'For Sale' if p.listing_type == 'sale' else 'To Rent' }}
+            </span>
+            {% if p.days_ago %}
+            <span class="text-xs text-slate-400">{{ p.days_ago }}</span>
+            {% endif %}
+          </div>
+          <p class="text-sm text-slate-500 mt-0.5 truncate">{{ p.address or p.title or "—" }}</p>
+          {% if p.agent_name %}
+          <p class="text-xs text-slate-400 mt-0.5 truncate">{{ p.agent_name }}</p>
+          {% endif %}
+          {% if p.previous_price %}
+          <span class="inline-flex items-center gap-1 text-xs font-semibold mt-1 px-2 py-0.5 rounded-full price-drop">
+            ↓ Was £{{ '{:,}'.format(p.previous_price) }}
+            (−{{ ((p.previous_price - p.price) / p.previous_price * 100) | round | int }}%)
+          </span>
+          {% endif %}
+        </div>
+        <button
+          onclick="toggleFavourite(this, '{{ p.id }}')"
+          data-fav="{{ 'true' if p.favourited else 'false' }}"
+          title="{{ 'Saved' if p.favourited else 'Save' }}"
+          class="text-2xl shrink-0 leading-none p-1 -mr-1 transition-transform duration-150
+                 hover:scale-125 active:scale-90 touch-manipulation"
+        >{{ '❤️' if p.favourited else '🤍' }}</button>
+      </div>
+
+      <!-- Key stats -->
+      <div class="flex flex-wrap gap-1.5 mt-2 mb-1">
+        {% if p.nearest_station %}
+        <span class="bg-violet-50 text-violet-700 border border-violet-100 text-xs font-medium
+                     px-2.5 py-1 rounded-full">
+          🚉 {{ p.nearest_station }}{% if p.station_distance_miles %} · {{ p.station_distance_miles }}mi{% endif %}
+        </span>
+        {% endif %}
+        {% if p.commute_minutes %}
+        <span class="bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-medium
+                     px-2.5 py-1 rounded-full">
+          🚂 {{ p.commute_minutes }}min London
+        </span>
+        {% endif %}
+        {% if p.school_rating %}
+        <span class="bg-amber-50 text-amber-700 border border-amber-100 text-xs font-medium
+                     px-2.5 py-1 rounded-full" title="{{ p.nearest_school }}">
+          🎓 {{ p.school_rating }}{% if p.nearest_school %} · {{ p.nearest_school[:20] }}{% endif %}
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Secondary badges -->
+      <div class="flex flex-wrap gap-1.5 mt-1">
+        {% if p.bedrooms %}
+        <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full font-medium">{{ p.bedrooms }} bed</span>
+        {% endif %}
+        {% if p.property_type %}
+        <span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">{{ p.property_type | title }}</span>
+        {% endif %}
+        {% if p.epc_rating %}
+        <span class="text-xs px-2.5 py-0.5 rounded-full font-medium
+                     {% if p.epc_rating in ['A','B','C'] %}bg-green-50 text-green-700 border border-green-100
+                     {% elif p.epc_rating == 'D' %}bg-yellow-50 text-yellow-700 border border-yellow-100
+                     {% else %}bg-red-50 text-red-700 border border-red-100{% endif %}">
+          EPC {{ p.epc_rating }}
+        </span>
+        {% endif %}
+        {% if p.crime_rate %}
+        <span class="text-xs px-2.5 py-0.5 rounded-full
+                     {% if p.crime_rate == 'Low' %}bg-green-50 text-green-700 border border-green-100
+                     {% elif p.crime_rate == 'Medium' %}bg-yellow-50 text-yellow-700 border border-yellow-100
+                     {% else %}bg-red-50 text-red-700 border border-red-100{% endif %}">
+          {{ p.crime_rate }} crime
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex gap-2 mt-auto pt-4">
+        <a href="{{ p.url }}" target="_blank" rel="noopener"
+           class="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
+                  text-white rounded-xl py-2.5 text-sm font-semibold transition-colors">
+          View listing →
+        </a>
+        <button onclick="hideCard('{{ p.id }}')" title="Hide"
+                class="px-3 py-2.5 text-slate-400 hover:text-slate-700 border border-slate-200
+                       hover:border-slate-300 rounded-xl hover:bg-slate-50 text-sm transition-colors">✕</button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<p class="text-center text-xs text-slate-400 mt-8">
+  Showing top {{ properties | length }} of {{ properties | length }} scored properties.
+  Properties without enrichment data don't appear here — they show in
+  <a href="/" class="text-indigo-500 hover:underline">All properties</a>.
+</p>
+{% endif %}
+
+<script>
+function toggleFavourite(btn, id) {
+  fetch(`/api/toggle-favourite/${id}`, {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      btn.dataset.fav = d.favourited;
+      btn.textContent = d.favourited ? '❤️' : '🤍';
+    });
+}
+function hideCard(id) {
+  const card = document.getElementById(`card-${id}`);
+  fetch(`/api/hide/${id}`, {method: 'POST'}).then(() => {
+    card.style.transition = 'opacity 0.25s, transform 0.25s';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.95)';
+    setTimeout(() => card.remove(), 260);
+  });
+}
+</script>
+
+{% endblock %}
