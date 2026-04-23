@@ -180,24 +180,26 @@ def _score_property(p: dict) -> tuple[int, list]:
 # ── Geocoding ─────────────────────────────────────────────────────────────────
 
 def _geocode(postcodes: list) -> dict:
-    """Bulk-geocode UK postcodes via postcodes.io (free, no key)."""
+    """Bulk-geocode UK postcodes via postcodes.io (free, no key). Batches 100 at a time."""
     if not postcodes:
         return {}
     try:
         import requests as req
-        clean = [p.strip() for p in postcodes if p][:100]
-        resp = req.post(
-            "https://api.postcodes.io/postcodes",
-            json={"postcodes": clean},
-            timeout=10,
-        )
+        clean = list({p.strip() for p in postcodes if p})  # deduplicate
         result: dict = {}
-        for item in resp.json().get("result", []):
-            if item and item.get("result"):
-                result[item["query"]] = (
-                    item["result"]["latitude"],
-                    item["result"]["longitude"],
-                )
+        for i in range(0, len(clean), 100):
+            batch = clean[i:i + 100]
+            resp = req.post(
+                "https://api.postcodes.io/postcodes",
+                json={"postcodes": batch},
+                timeout=10,
+            )
+            for item in resp.json().get("result", []):
+                if item and item.get("result"):
+                    result[item["query"]] = (
+                        item["result"]["latitude"],
+                        item["result"]["longitude"],
+                    )
         return result
     except Exception:
         return {}
