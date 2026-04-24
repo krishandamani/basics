@@ -320,30 +320,41 @@ def map_view():
         source        = source,
         limit         = 500,
     )
-    postcodes = list({dict(p)["postcode"] for p in props if dict(p).get("postcode")})
-    geo = _geocode(postcodes)
 
-    points = []
+    # Properties with stored lat/lng (from scraper) need no geocoding
+    with_coords = []
+    need_geocode = []
     for p in props:
         d = dict(p)
-        pc = d.get("postcode", "")
-        if pc and pc in geo:
-            lat, lng = geo[pc]
-            points.append({
-                "lat": lat, "lng": lng,
-                "price": d["price"],
-                "address": d["address"] or d["title"],
-                "bedrooms": d["bedrooms"],
-                "property_type": d.get("property_type") or "",
-                "source": d["source"],
-                "listing_type": d["listing_type"],
-                "url": d["url"],
-                "image_url": d.get("image_url") or "",
-                "nearest_station": d.get("nearest_station") or "",
-                "station_distance_miles": d.get("station_distance_miles"),
-                "commute_minutes": d.get("commute_minutes"),
-                "epc_rating": d.get("epc_rating") or "",
-            })
+        if d.get("lat") and d.get("lng"):
+            with_coords.append(d)
+        elif d.get("postcode"):
+            need_geocode.append(d)
+
+    geo = _geocode([d["postcode"] for d in need_geocode])
+
+    def _make_point(d, lat, lng):
+        return {
+            "lat": lat, "lng": lng,
+            "price": d["price"],
+            "address": d["address"] or d["title"],
+            "bedrooms": d["bedrooms"],
+            "property_type": d.get("property_type") or "",
+            "source": d["source"],
+            "listing_type": d["listing_type"],
+            "url": d["url"],
+            "image_url": d.get("image_url") or "",
+            "nearest_station": d.get("nearest_station") or "",
+            "station_distance_miles": d.get("station_distance_miles"),
+            "commute_minutes": d.get("commute_minutes"),
+            "epc_rating": d.get("epc_rating") or "",
+        }
+
+    points = [_make_point(d, d["lat"], d["lng"]) for d in with_coords]
+    for d in need_geocode:
+        if d["postcode"] in geo:
+            lat, lng = geo[d["postcode"]]
+            points.append(_make_point(d, lat, lng))
 
     map_filters = {
         "listing_type": listing_type,

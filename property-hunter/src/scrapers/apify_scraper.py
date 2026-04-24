@@ -257,6 +257,10 @@ def scrape_rightmove(search: Search) -> List[Property]:
                 if isinstance(agent, dict) else None
             )
 
+            loc = prop.get("location") or {}
+            lat = float(loc["latitude"])  if isinstance(loc, dict) and loc.get("latitude")  else None
+            lng = float(loc["longitude"]) if isinstance(loc, dict) and loc.get("longitude") else None
+
             results.append(Property(
                 id=prop_id,
                 source="rightmove",
@@ -270,6 +274,8 @@ def scrape_rightmove(search: Search) -> List[Property]:
                 postcode=_postcode(address),
                 image_url=_extract_image(prop),
                 agent_name=str(agent_name) if agent_name else None,
+                lat=lat,
+                lng=lng,
             ))
         except Exception:
             continue
