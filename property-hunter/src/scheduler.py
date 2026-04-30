@@ -20,6 +20,7 @@ from .enricher import enrich
 from .matcher import filter_properties
 from .models import Search
 from .notifier import send_digest, send_health_alert, send_price_drop_alert, send_price_drop_email, send_telegram_alert
+from .scoring import score_property
 from . import scrapers
 
 _USE_APIFY = bool(os.environ.get("APIFY_API_KEY"))
@@ -200,9 +201,14 @@ def run_cycle(config: dict, searches: List[Search], send_health_alerts: bool = F
     print()
     if all_new_matches:
         n = len(all_new_matches)
-        print(f"  Sending digest + Telegram for {n} new propert{'ies' if n != 1 else 'y'}…")
-        send_digest(all_new_matches, config)
-        send_telegram_alert(all_new_matches, config)
+        recommended = [(p, s) for p, s in all_new_matches if score_property(p)[0] > 0]
+        r = len(recommended)
+        print(f"  {n} new propert{'ies' if n != 1 else 'y'} found, {r} recommended (score > 0)")
+        if recommended:
+            send_digest(recommended, config)
+            send_telegram_alert(recommended, config)
+        else:
+            print("  No recommended matches — no email sent.")
     else:
         print("  No new matches — no email sent.")
 

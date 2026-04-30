@@ -143,6 +143,10 @@ def scrape(search: Search) -> List[Property]:
                     r"[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}", title + " " + address
                 )
 
+                point = item.get("point") or {}
+                lat = float(point["lat"]) if isinstance(point, dict) and point.get("lat") else None
+                lng = float(point["lng"]) if isinstance(point, dict) and point.get("lng") else None
+
                 properties.append(Property(
                     id=f"onthemarket_{listing_id}",
                     source="onthemarket",
@@ -156,6 +160,8 @@ def scrape(search: Search) -> List[Property]:
                     postcode=postcode_match.group() if postcode_match else None,
                     image_url=image_url,
                     agent_name=str(agent_name) if agent_name else None,
+                    lat=lat,
+                    lng=lng,
                 ))
             except Exception:
                 continue

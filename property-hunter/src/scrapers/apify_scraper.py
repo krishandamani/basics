@@ -258,8 +258,10 @@ def scrape_rightmove(search: Search) -> List[Property]:
             )
 
             loc = prop.get("location") or {}
-            lat = float(loc["latitude"])  if isinstance(loc, dict) and loc.get("latitude")  else None
-            lng = float(loc["longitude"]) if isinstance(loc, dict) and loc.get("longitude") else None
+            lat_raw = (loc.get("latitude")  if isinstance(loc, dict) else None) or prop.get("latitude")
+            lng_raw = (loc.get("longitude") if isinstance(loc, dict) else None) or prop.get("longitude")
+            lat = float(lat_raw) if lat_raw is not None else None
+            lng = float(lng_raw) if lng_raw is not None else None
 
             results.append(Property(
                 id=prop_id,

@@ -21,6 +21,7 @@ from src.database import (
     DB_PATH, get_web_properties, has_any_properties, hide_property,
     init_db, init_web_tables, toggle_favourite,
 )
+from src.scoring import score_property
 
 app = Flask(__name__)
 app.secret_key = "property-hunter-local"
@@ -128,56 +129,39 @@ def _parse_nl(query: str) -> dict:
         return {}
 
 
-def _score_property(p: dict) -> tuple[int, list]:
-    """Score a property 0-100 based on enrichment signals. Returns (score, reasons)."""
-    score = 0
-    reasons = []
-
-    school = p.get("school_rating") or ""
-    if school == "Outstanding":
-        score += 30; reasons.append("🎓 Outstanding school")
-    elif school == "Good":
-        score += 20; reasons.append("🎓 Good school")
-
-    crime = p.get("crime_rate") or ""
-    if crime == "Low":
-        score += 20; reasons.append("🔒 Low crime")
-    elif crime == "Medium":
-        score += 5
-    elif crime == "High":
-        score -= 10
-
-    epc = p.get("epc_rating") or ""
-    if epc in ("A", "B"):
-        score += 15; reasons.append(f"⚡ EPC {epc}")
-    elif epc == "C":
-        score += 10; reasons.append("⚡ EPC C")
-    elif epc == "D":
-        score += 5
-
-    commute = p.get("commute_minutes") or 0
-    if 0 < commute <= 30:
-        score += 20; reasons.append(f"🚂 {commute}min to London")
-    elif commute <= 40:
-        score += 15; reasons.append(f"🚂 {commute}min to London")
-    elif commute <= 50:
-        score += 10; reasons.append(f"🚂 {commute}min to London")
-
-    dist = p.get("station_distance_miles") or 0
-    if 0 < dist <= 0.5:
-        score += 15; reasons.append(f"🚉 {dist}mi to station")
-    elif dist <= 1.0:
-        score += 10; reasons.append(f"🚉 {dist}mi to station")
-    elif dist <= 2.0:
-        score += 5
-
-    if p.get("previous_price") and p.get("price") and p["price"] < p["previous_price"]:
-        score += 10; reasons.append("💰 Price reduced")
-
-    return max(score, 0), reasons
-
-
 # ── Geocoding ─────────────────────────────────────────────────────────────────
+
+def _extract_town(address: str) -> str:
+    """Extract the likely town name from a comma-separated address string."""
+    parts = [p.strip() for p in (address or "").split(",") if p.strip()]
+    if len(parts) >= 2:
+        return parts[-2]  # e.g. "4 bed house, Hitchin, Hertfordshire" → "Hitchin"
+    return parts[0] if parts else ""
+
+
+def _geocode_towns(towns: list) -> dict:
+    """Geocode UK town/place names via postcodes.io places API. Returns {town: (lat, lng)}."""
+    if not towns:
+        return {}
+    try:
+        import requests as req
+        result: dict = {}
+        for town in set(t for t in towns if t):
+            try:
+                r = req.get(
+                    "https://api.postcodes.io/places",
+                    params={"q": town, "limit": 1},
+                    timeout=6,
+                )
+                items = (r.json().get("result") or []) if r.status_code == 200 else []
+                if items:
+                    result[town] = (items[0]["latitude"], items[0]["longitude"])
+            except Exception:
+                pass
+        return result
+    except Exception:
+        return {}
+
 
 def _geocode(postcodes: list) -> dict:
     """Bulk-geocode UK postcodes via postcodes.io (free, no key). Batches 100 at a time."""
@@ -321,19 +305,25 @@ def map_view():
         limit         = 500,
     )
 
-    # Properties with stored lat/lng (from scraper) need no geocoding
-    with_coords = []
-    need_geocode = []
+    # Bucket properties: stored coords → postcode geocode → town geocode
+    with_coords, need_postcode, need_town = [], [], []
     for p in props:
         d = dict(p)
         if d.get("lat") and d.get("lng"):
             with_coords.append(d)
         elif d.get("postcode"):
-            need_geocode.append(d)
+            need_postcode.append(d)
+        else:
+            need_town.append(d)
 
-    geo = _geocode([d["postcode"] for d in need_geocode])
+    geo      = _geocode([d["postcode"] for d in need_postcode])
+    town_geo = _geocode_towns([_extract_town(d.get("address") or d.get("title", "")) for d in need_town])
 
-    def _make_point(d, lat, lng):
+    def _make_point(d, lat, lng, jitter=False):
+        import random
+        if jitter:
+            lat += random.uniform(-0.004, 0.004)
+            lng += random.uniform(-0.004, 0.004)
         return {
             "lat": lat, "lng": lng,
             "price": d["price"],
@@ -351,10 +341,15 @@ def map_view():
         }
 
     points = [_make_point(d, d["lat"], d["lng"]) for d in with_coords]
-    for d in need_geocode:
+    for d in need_postcode:
         if d["postcode"] in geo:
             lat, lng = geo[d["postcode"]]
             points.append(_make_point(d, lat, lng))
+    for d in need_town:
+        town = _extract_town(d.get("address") or d.get("title", ""))
+        if town in town_geo:
+            lat, lng = town_geo[town]
+            points.append(_make_point(d, lat, lng, jitter=True))
 
     map_filters = {
         "listing_type": listing_type,
@@ -387,7 +382,7 @@ def recommended():
 
     scored = []
     for p in enriched:
-        score, reasons = _score_property(p)
+        score, reasons = score_property(p)
         if score > 0:
             p = dict(p)
             p["score"] = score
