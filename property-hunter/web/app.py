@@ -19,13 +19,57 @@ from flask import Flask, jsonify, render_template, request, url_for
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.database import (
-    DB_PATH, get_web_properties, has_any_properties, hide_property,
-    init_db, init_web_tables, toggle_favourite,
+    DB_PATH, get_unenriched_school_props, get_web_properties,
+    has_any_properties, hide_property, init_db, init_web_tables,
+    toggle_favourite, update_school_data,
 )
 from src.scoring import score_property
 
 app = Flask(__name__)
 app.secret_key = "property-hunter-local"
+
+# ── School backfill ───────────────────────────────────────────────────────────
+
+_school_backfill_state: dict = {"running": False, "done": 0, "total": 0}
+
+
+def _school_backfill_bg() -> None:
+    """Enrich existing properties that have no school data (runs once per startup)."""
+    from src.enricher import _enrich_school
+    from src.models import Property as _Property
+
+    _school_backfill_state["running"] = True
+    try:
+        rows = get_unenriched_school_props(limit=60)
+        _school_backfill_state["total"] = len(rows)
+        print(f"[school-backfill] {len(rows)} properties to enrich")
+        for row in rows:
+            d = dict(row)
+            try:
+                prop = _Property(
+                    id=d["id"], source=d["source"], listing_type=d["listing_type"],
+                    url=d["url"], price=d["price"] or 0, bedrooms=d["bedrooms"] or 0,
+                    property_type=d["property_type"] or "", address=d["address"] or "",
+                    postcode=d.get("postcode"), lat=d.get("lat"), lng=d.get("lng"),
+                )
+                enriched = _enrich_school(prop)
+                if enriched.nearby_schools:
+                    update_school_data(
+                        d["id"], enriched.nearby_schools,
+                        enriched.nearest_school or "", enriched.school_rating or "",
+                    )
+                _school_backfill_state["done"] += 1
+            except Exception as exc:
+                print(f"  [school-backfill] {d['id']}: {exc}")
+                _school_backfill_state["done"] += 1
+        print(f"[school-backfill] Done — {_school_backfill_state['done']} processed")
+    except Exception as exc:
+        print(f"[school-backfill] Error: {exc}")
+    finally:
+        _school_backfill_state["running"] = False
+
+
+threading.Thread(target=_school_backfill_bg, daemon=True).start()
 
 
 @app.template_global()
@@ -441,6 +485,16 @@ def recommended():
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
+
+@app.route("/api/re-enrich-schools", methods=["POST"])
+def api_re_enrich_schools():
+    if _school_backfill_state["running"]:
+        return jsonify({"status": "already_running", **_school_backfill_state})
+    _school_backfill_state["done"] = 0
+    _school_backfill_state["total"] = 0
+    threading.Thread(target=_school_backfill_bg, daemon=True).start()
+    return jsonify({"status": "started"})
+
 
 @app.route("/api/toggle-favourite/<prop_id>", methods=["POST"])
 def api_toggle_favourite(prop_id):

@@ -392,6 +392,29 @@ def has_any_properties() -> bool:
         return row is not None
 
 
+def get_unenriched_school_props(limit: int = 60) -> list:
+    """Return properties with no school data that have a postcode or lat/lng."""
+    with _db() as conn:
+        return _x(conn, """
+            SELECT id, source, listing_type, url, price, bedrooms,
+                   property_type, address, postcode, lat, lng, first_seen
+            FROM properties
+            WHERE nearby_schools IS NULL
+              AND (postcode IS NOT NULL OR (lat IS NOT NULL AND lng IS NOT NULL))
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+
+def update_school_data(prop_id: str, nearby_schools: str,
+                       nearest_school: str, school_rating: str) -> None:
+    """Write school enrichment back to an existing property row."""
+    with _db() as conn:
+        _x(conn,
+            "UPDATE properties SET nearby_schools=?, nearest_school=?, school_rating=? WHERE id=?",
+            (nearby_schools, nearest_school, school_rating, prop_id),
+        )
+
+
 def hide_property(property_id: str) -> None:
     """Mark a property as hidden so it won't appear in the feed."""
     with _db() as conn:
