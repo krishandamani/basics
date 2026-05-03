@@ -111,18 +111,13 @@ def _enrich_school(prop: Property) -> Property:
         clean = re.sub(r"\s+", "", postcode).upper()
         r = requests.get(
             "https://api.get-information-about-schools.service.gov.uk/api/establishments",
-            params={
-                "nearestToPostCode": clean,
-                "radiusInMiles": 2,
-                "status": "Open",
-                "fields": "EstablishmentName,OfstedRating,PhaseOfEducation,URN",
-            },
+            params={"nearestToPostCode": clean, "radiusInMiles": 2},
             timeout=_TIMEOUT,
         )
         if r.status_code != 200:
             return prop
         raw = r.json()
-        if not raw:
+        if not isinstance(raw, list) or not raw:
             return prop
 
         parsed = []
@@ -168,8 +163,8 @@ def _enrich_school(prop: Property) -> Property:
         )
         prop.nearest_school = best["name"]
         prop.school_rating = best["rating"]
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"  [school] {prop.postcode or 'no-postcode'}: {exc}")
     return prop
 
 

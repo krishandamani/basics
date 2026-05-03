@@ -30,19 +30,28 @@ app.secret_key = "property-hunter-local"
 
 # ── School backfill ───────────────────────────────────────────────────────────
 
-_school_backfill_state: dict = {"running": False, "done": 0, "total": 0}
+_school_backfill_state: dict = {
+    "running": False, "done": 0, "total": 0,
+    "saved": 0, "last_error": "", "last_api_status": None,
+}
 
 
 def _school_backfill_bg() -> None:
     """Enrich existing properties that have no school data (runs once per startup)."""
     from src.enricher import _enrich_school
     from src.models import Property as _Property
+    import requests as _req
 
     _school_backfill_state["running"] = True
+    _school_backfill_state["saved"] = 0
+    _school_backfill_state["last_error"] = ""
     try:
         rows = get_unenriched_school_props(limit=60)
         _school_backfill_state["total"] = len(rows)
         print(f"[school-backfill] {len(rows)} properties to enrich")
+        if not rows:
+            print("[school-backfill] Nothing to do — all properties already have school data")
+            return
         for row in rows:
             d = dict(row)
             try:
@@ -58,13 +67,17 @@ def _school_backfill_bg() -> None:
                         d["id"], enriched.nearby_schools,
                         enriched.nearest_school or "", enriched.school_rating or "",
                     )
+                    _school_backfill_state["saved"] += 1
                 _school_backfill_state["done"] += 1
             except Exception as exc:
-                print(f"  [school-backfill] {d['id']}: {exc}")
+                err = f"{d['id']}: {exc}"
+                print(f"  [school-backfill] {err}")
+                _school_backfill_state["last_error"] = err
                 _school_backfill_state["done"] += 1
-        print(f"[school-backfill] Done — {_school_backfill_state['done']} processed")
+        print(f"[school-backfill] Done — saved {_school_backfill_state['saved']}/{_school_backfill_state['done']}")
     except Exception as exc:
         print(f"[school-backfill] Error: {exc}")
+        _school_backfill_state["last_error"] = str(exc)
     finally:
         _school_backfill_state["running"] = False
 
@@ -494,6 +507,32 @@ def api_re_enrich_schools():
     _school_backfill_state["total"] = 0
     threading.Thread(target=_school_backfill_bg, daemon=True).start()
     return jsonify({"status": "started"})
+
+
+@app.route("/api/school-backfill-status")
+def api_school_backfill_status():
+    return jsonify(_school_backfill_state)
+
+
+@app.route("/api/test-gias")
+def api_test_gias():
+    """Test GIAS school API against a known postcode. Returns raw first result for debugging."""
+    import requests as _req
+    postcode = request.args.get("postcode", "SG50DT")
+    try:
+        r = _req.get(
+            "https://api.get-information-about-schools.service.gov.uk/api/establishments",
+            params={"nearestToPostCode": postcode, "radiusInMiles": 2},
+            timeout=10,
+        )
+        raw = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
+        return jsonify({
+            "status_code": r.status_code,
+            "count": len(raw) if isinstance(raw, list) else None,
+            "first": raw[0] if isinstance(raw, list) and raw else raw,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/toggle-favourite/<prop_id>", methods=["POST"])
