@@ -3,8 +3,10 @@ and nearest railway station to matched properties. All sources are free
 public UK APIs. Each enrichment is independent; failures are silent.
 """
 
+import json
 import math
 import re
+from typing import Optional
 import requests
 
 from .models import Property
@@ -85,8 +87,20 @@ def _enrich_epc(prop: Property) -> Property:
     return prop
 
 
+_OFSTED_LABELS = {
+    "1": "Outstanding",
+    "2": "Good",
+    "3": "Requires improvement",
+    "4": "Inadequate",
+}
+
+
 def _enrich_school(prop: Property) -> Property:
-    """Find the nearest Good/Outstanding Ofsted-rated school within 1 mile."""
+    """Fetch up to 5 nearby schools within 2 miles via GIAS API (all Ofsted ratings).
+
+    Stores a JSON list in prop.nearby_schools with name/rating/phase/urn per school.
+    Also sets legacy prop.nearest_school / prop.school_rating from the best-rated result.
+    """
     postcode = prop.postcode
     if not postcode:
         if prop.lat and prop.lng:
@@ -95,28 +109,65 @@ def _enrich_school(prop: Property) -> Property:
             return prop
     try:
         clean = re.sub(r"\s+", "", postcode).upper()
-        # OfstedRating: 1=Outstanding, 2=Good
         r = requests.get(
             "https://api.get-information-about-schools.service.gov.uk/api/establishments",
             params={
                 "nearestToPostCode": clean,
-                "radiusInMiles": 1,
-                "ofstedRating[]": ["1", "2"],
+                "radiusInMiles": 2,
                 "status": "Open",
-                "fields": "EstablishmentName,OfstedRating",
+                "fields": "EstablishmentName,OfstedRating,PhaseOfEducation,URN",
             },
             timeout=_TIMEOUT,
         )
-        if r.status_code == 200:
-            schools = r.json()
-            if schools:
-                first = schools[0]
-                name = first.get("EstablishmentName", "")
-                rating_code = str(first.get("OfstedRating", ""))
-                rating_label = {"1": "Outstanding", "2": "Good"}.get(rating_code, "")
-                if name and rating_label:
-                    prop.nearest_school = name
-                    prop.school_rating = rating_label
+        if r.status_code != 200:
+            return prop
+        raw = r.json()
+        if not raw:
+            return prop
+
+        parsed = []
+        for s in raw[:10]:
+            name = s.get("EstablishmentName", "")
+            if not name:
+                continue
+
+            ofsted_raw = s.get("OfstedRating") or ""
+            if isinstance(ofsted_raw, dict):
+                rating_code = str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
+            else:
+                rating_code = str(ofsted_raw)
+            rating = _OFSTED_LABELS.get(rating_code, "Not rated")
+
+            phase_raw = s.get("PhaseOfEducation") or {}
+            if isinstance(phase_raw, dict):
+                phase_str = phase_raw.get("displayName", "") or phase_raw.get("value", "")
+            else:
+                phase_str = str(phase_raw)
+            phase_lower = phase_str.lower()
+            if "primary" in phase_lower or "infant" in phase_lower or "junior" in phase_lower:
+                phase = "Primary"
+            elif "secondary" in phase_lower or "all-through" in phase_lower or "through" in phase_lower:
+                phase = "Secondary"
+            else:
+                phase = phase_str or "Other"
+
+            urn = str(s.get("URN", "") or "")
+            parsed.append({"name": name, "rating": rating, "phase": phase, "urn": urn})
+            if len(parsed) >= 5:
+                break
+
+        if not parsed:
+            return prop
+
+        prop.nearby_schools = json.dumps(parsed)
+
+        # Set legacy fields from the best-rated school
+        best = next(
+            (s for s in parsed if s["rating"] == "Outstanding"),
+            next((s for s in parsed if s["rating"] == "Good"), parsed[0]),
+        )
+        prop.nearest_school = best["name"]
+        prop.school_rating = best["rating"]
     except Exception:
         pass
     return prop

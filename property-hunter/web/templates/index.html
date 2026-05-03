@@ -358,6 +358,41 @@
         {% endif %}
       </div>
 
+      <!-- Schools detail -->
+      {% if p.nearby_schools_primary or p.nearby_schools_secondary %}
+      <div class="mt-2 pt-2 border-t border-slate-100 text-xs leading-relaxed">
+        {% for label, group in [("Primary", p.nearby_schools_primary), ("Secondary", p.nearby_schools_secondary)] %}
+        {% if group %}
+        <div class="mb-0.5">
+          <span class="text-slate-400 font-medium">{{ label }}:</span>
+          {% for s in group[:2] %}
+          {% if s.urn %}
+          <a href="https://reports.ofsted.gov.uk/provider/view/{{ s.urn }}"
+             target="_blank" rel="noopener"
+             class="ml-1 hover:underline
+                    {% if s.rating == 'Outstanding' %}text-green-700
+                    {% elif s.rating == 'Good' %}text-emerald-600
+                    {% elif s.rating == 'Requires improvement' %}text-amber-600
+                    {% elif s.rating == 'Inadequate' %}text-red-600
+                    {% else %}text-slate-500{% endif %}">
+            {{ s.name[:28] }}<span class="text-slate-400 ml-0.5">({{ s.rating[:3] if s.rating != 'Not rated' else 'NR' }})</span>
+          </a>
+          {% else %}
+          <span class="ml-1 text-slate-500">{{ s.name[:28] }}</span>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if p.council_schools_url %}
+        <a href="{{ p.council_schools_url }}" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-1 text-indigo-600 hover:underline font-medium mt-0.5">
+          🗺 Check catchment →
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <!-- Action buttons (pushed to bottom) -->
       <div class="flex gap-2 mt-auto pt-4">
         <a href="{{ p.url }}" target="_blank" rel="noopener"

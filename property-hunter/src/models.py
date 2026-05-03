@@ -30,6 +30,7 @@ class Property:
     previous_price: Optional[int] = None  # set when a price drop is detected
     lat: Optional[float] = None           # from scraper (more reliable than postcode geocoding)
     lng: Optional[float] = None
+    nearby_schools: Optional[str] = None  # JSON: [{name, rating, phase, urn}, ...]
     first_seen: datetime = field(default_factory=datetime.now)
 
 

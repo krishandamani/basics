@@ -8,6 +8,7 @@ Then open http://localhost:5000 in your browser.
 
 import json
 import os
+import re
 import sys
 import threading
 from datetime import datetime, timedelta
@@ -191,8 +192,29 @@ def _geocode(postcodes: list) -> dict:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _council_schools_url(postcode: str) -> str:
+    """Return a council catchment-area tool URL for the given UK postcode, or ''."""
+    if not postcode:
+        return ""
+    district = postcode.strip().split()[0].upper()
+    num_m = re.search(r'\d+', district)
+    n = int(num_m.group()) if num_m else 0
+    if district.startswith("HP"):
+        if n <= 5:
+            return "https://apps.hertfordshire.gov.uk/apps/catchmentareamap/"
+        return "https://www.buckinghamshire.gov.uk/schools-and-learning/schools-and-admissions/find-a-school/"
+    if district.startswith(("SG", "AL", "WD")):
+        return "https://apps.hertfordshire.gov.uk/apps/catchmentareamap/"
+    if district.startswith("EN") and n >= 6:
+        return "https://apps.hertfordshire.gov.uk/apps/catchmentareamap/"
+    if district.startswith("HA"):
+        return ("https://www.harrow.gov.uk/schools-learning/school-admissions/2"
+                if n <= 3 else "https://www.hillingdon.gov.uk/article/2534/Find-a-school")
+    return ""
+
+
 def _enrich_is_new(props) -> list:
-    """Add is_new and days_ago fields; convert Rows to dicts."""
+    """Add is_new, days_ago, parsed school lists, and council_schools_url; convert Rows to dicts."""
     now = datetime.now()
     cutoff = now - timedelta(hours=24)
     out = []
@@ -206,6 +228,21 @@ def _enrich_is_new(props) -> list:
         except Exception:
             d["is_new"] = False
             d["days_ago"] = None
+
+        raw_schools = d.get("nearby_schools")
+        if raw_schools:
+            try:
+                schools_list = json.loads(raw_schools)
+                d["nearby_schools_primary"]   = [s for s in schools_list if s.get("phase") == "Primary"]
+                d["nearby_schools_secondary"] = [s for s in schools_list if s.get("phase") == "Secondary"]
+            except Exception:
+                d["nearby_schools_primary"] = []
+                d["nearby_schools_secondary"] = []
+        else:
+            d["nearby_schools_primary"] = []
+            d["nearby_schools_secondary"] = []
+
+        d["council_schools_url"] = _council_schools_url(d.get("postcode") or "")
         out.append(d)
     return out
 

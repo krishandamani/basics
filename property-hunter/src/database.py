@@ -87,6 +87,7 @@ def init_db() -> None:
                 station_distance_miles REAL,
                 lat                   REAL,
                 lng                   REAL,
+                nearby_schools        TEXT,
                 first_seen            TEXT
             )
         """)
@@ -100,6 +101,7 @@ def init_db() -> None:
             ("station_distance_miles", "REAL"),
             ("lat", "REAL"),
             ("lng", "REAL"),
+            ("nearby_schools", "TEXT"),
         ]:
             try:
                 _x(conn, f"ALTER TABLE properties ADD COLUMN {col} {defn}")
@@ -185,6 +187,7 @@ def save_property(prop: Property) -> None:
         prop.nearest_school, prop.school_rating, prop.agent_name,
         prop.nearest_station, prop.station_distance_miles,
         prop.lat, prop.lng,
+        prop.nearby_schools,
         prop.first_seen.isoformat(),
     )
     with _db() as conn:
@@ -195,8 +198,9 @@ def save_property(prop: Property) -> None:
                      bedrooms, property_type, address, title, postcode, image_url,
                      epc_rating, crime_rate, commute_minutes,
                      nearest_school, school_rating, agent_name,
-                     nearest_station, station_distance_miles, lat, lng, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     nearest_station, station_distance_miles, lat, lng,
+                     nearby_schools, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (id) DO UPDATE SET
                     source                 = EXCLUDED.source,
                     listing_type           = EXCLUDED.listing_type,
@@ -218,7 +222,8 @@ def save_property(prop: Property) -> None:
                     nearest_station        = EXCLUDED.nearest_station,
                     station_distance_miles = EXCLUDED.station_distance_miles,
                     lat                    = EXCLUDED.lat,
-                    lng                    = EXCLUDED.lng
+                    lng                    = EXCLUDED.lng,
+                    nearby_schools         = EXCLUDED.nearby_schools
             """, params)
         else:
             _x(conn, """
@@ -227,8 +232,9 @@ def save_property(prop: Property) -> None:
                      bedrooms, property_type, address, title, postcode, image_url,
                      epc_rating, crime_rate, commute_minutes,
                      nearest_school, school_rating, agent_name,
-                     nearest_station, station_distance_miles, lat, lng, first_seen)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     nearest_station, station_distance_miles, lat, lng,
+                     nearby_schools, first_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, params)
 
 
