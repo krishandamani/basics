@@ -569,10 +569,18 @@ def api_search_status():
 
 @app.route("/api/diagnostics")
 def api_diagnostics():
+    import subprocess
     from src.scheduler import _apify_configured, _last_run_stats
+    try:
+        git_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                          cwd="/home/user/basics").decode().strip()
+    except Exception:
+        git_sha = "unknown"
     return jsonify({
         "apify_configured": _apify_configured(),
         "last_run": _last_run_stats,
+        "git_sha": git_sha,
+        "school_backfill": _school_backfill_state,
     })
 
 
