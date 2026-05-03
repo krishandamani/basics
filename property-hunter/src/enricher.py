@@ -5,6 +5,7 @@ public UK APIs. Each enrichment is independent; failures are silent.
 
 import json
 import math
+import os
 import re
 from typing import Optional
 import requests
@@ -12,6 +13,26 @@ import requests
 from .models import Property
 
 _TIMEOUT = 8  # seconds per API call
+
+_GIAS_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PropertyHunter/1.0; +https://github.com)"}
+
+
+def _gias_get(url: str, params: dict) -> requests.Response:
+    """GET the GIAS API, routing through Apify proxy on Railway to avoid datacenter blocks."""
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if api_key:
+        for group in ("groups-RESIDENTIAL", "auto"):
+            proxy = f"http://{group}:{api_key}@proxy.apify.com:8000"
+            try:
+                r = requests.get(url, params=params, headers=_GIAS_HEADERS,
+                                 proxies={"http": proxy, "https": proxy},
+                                 timeout=15, verify=False)
+                if r.status_code == 200:
+                    return r
+                print(f"  [school/proxy/{group}] HTTP {r.status_code}")
+            except Exception as exc:
+                print(f"  [school/proxy/{group}] {exc}")
+    return requests.get(url, params=params, headers=_GIAS_HEADERS, timeout=_TIMEOUT)
 
 
 def _get_lat_lng(postcode: str):
@@ -109,15 +130,15 @@ def _enrich_school(prop: Property) -> Property:
             return prop
     try:
         clean = re.sub(r"\s+", "", postcode).upper()
-        r = requests.get(
+        r = _gias_get(
             "https://api.get-information-about-schools.service.gov.uk/api/establishments",
-            params={"nearestToPostCode": clean, "radiusInMiles": 2},
-            timeout=_TIMEOUT,
+            {"nearestToPostCode": clean, "radiusInMiles": 2},
         )
         if r.status_code != 200:
             return prop
         raw = r.json()
         if not isinstance(raw, list) or not raw:
+            print(f"  [school] unexpected response for {clean}: {type(raw)} {str(raw)[:120]}")
             return prop
 
         parsed = []
