@@ -376,8 +376,7 @@
         <div class="mb-0.5">
           <span class="text-slate-400 font-medium">{{ label }}:</span>
           {% for s in group[:2] %}
-          {% if s.urn %}
-          <a href="https://reports.ofsted.gov.uk/provider/view/{{ s.urn }}"
+          <a href="{{ 'https://reports.ofsted.gov.uk/provider/view/' + s.urn if s.urn else 'https://reports.ofsted.gov.uk/search?q=' + s.name | urlencode }}"
              target="_blank" rel="noopener"
              class="ml-1 hover:underline
                     {% if s.rating == 'Outstanding' %}text-green-700
@@ -387,9 +386,6 @@
                     {% else %}text-slate-500{% endif %}">
             {{ s.name[:28] }}<span class="text-slate-400 ml-0.5">({{ s.rating[:3] if s.rating != 'Not rated' else 'NR' }})</span>
           </a>
-          {% else %}
-          <span class="ml-1 text-slate-500">{{ s.name[:28] }}</span>
-          {% endif %}
           {% endfor %}
         </div>
         {% endif %}

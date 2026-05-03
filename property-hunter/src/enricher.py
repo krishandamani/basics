@@ -5,7 +5,6 @@ public UK APIs. Each enrichment is independent; failures are silent.
 
 import json
 import math
-import os
 import re
 from typing import Optional
 import requests
@@ -13,26 +12,6 @@ import requests
 from .models import Property
 
 _TIMEOUT = 8  # seconds per API call
-
-_GIAS_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PropertyHunter/1.0; +https://github.com)"}
-
-
-def _gias_get(url: str, params: dict) -> requests.Response:
-    """GET the GIAS API, routing through Apify proxy on Railway to avoid datacenter blocks."""
-    api_key = os.environ.get("APIFY_API_KEY", "")
-    if api_key:
-        for group in ("groups-RESIDENTIAL", "auto"):
-            proxy = f"http://{group}:{api_key}@proxy.apify.com:8000"
-            try:
-                r = requests.get(url, params=params, headers=_GIAS_HEADERS,
-                                 proxies={"http": proxy, "https": proxy},
-                                 timeout=15, verify=False)
-                if r.status_code == 200:
-                    return r
-                print(f"  [school/proxy/{group}] HTTP {r.status_code}")
-            except Exception as exc:
-                print(f"  [school/proxy/{group}] {exc}")
-    return requests.get(url, params=params, headers=_GIAS_HEADERS, timeout=_TIMEOUT)
 
 
 def _get_lat_lng(postcode: str):
@@ -108,84 +87,132 @@ def _enrich_epc(prop: Property) -> Property:
     return prop
 
 
-_OFSTED_LABELS = {
-    "1": "Outstanding",
-    "2": "Good",
-    "3": "Requires improvement",
-    "4": "Inadequate",
-}
+def _haversine_miles(lat1, lng1, lat2, lng2) -> float:
+    R = 3958.8
+    d_lat = math.radians(lat2 - lat1)
+    d_lng = math.radians(lng2 - lng1)
+    a = math.sin(d_lat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lng / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+def _schools_via_osm(lat: float, lng: float) -> list:
+    """Find nearby schools via OpenStreetMap Overpass API (reliable — same as station lookup).
+
+    Returns [{name, rating, phase, urn}, ...] sorted nearest-first.
+    Ofsted rating is 'Not rated' (OSM has no Ofsted data).
+    """
+    try:
+        query = (
+            f"[out:json][timeout:6];"
+            f"(node(around:2500,{lat},{lng})[amenity=school];"
+            f"way(around:2500,{lat},{lng})[amenity=school];);"
+            f"out center body;"
+        )
+        r = requests.post("https://overpass-api.de/api/interpreter",
+                          data={"data": query}, timeout=8)
+        if r.status_code != 200:
+            return []
+        elements = r.json().get("elements", [])
+        schools = []
+        for e in elements[:10]:
+            tags = e.get("tags", {})
+            name = tags.get("name", "")
+            if not name:
+                continue
+            e_lat = float(e.get("lat") or e.get("center", {}).get("lat") or lat)
+            e_lng = float(e.get("lon") or e.get("center", {}).get("lon") or lng)
+            dist = _haversine_miles(lat, lng, e_lat, e_lng)
+            nl = name.lower()
+            phase_tag = (tags.get("school", "") or tags.get("isced:level", "")).lower()
+            if any(w in nl for w in ("primary", "infant", "junior", "prep")):
+                phase = "Primary"
+            elif any(w in nl for w in ("secondary", "academy", "high school", "college", "grammar")):
+                phase = "Secondary"
+            elif any(c in phase_tag for c in ("1", "2")):
+                phase = "Primary"
+            elif any(c in phase_tag for c in ("3", "4", "5", "6")):
+                phase = "Secondary"
+            else:
+                phase = "Primary"
+            schools.append({"name": name, "rating": "Not rated", "phase": phase, "urn": "", "_d": dist})
+        schools.sort(key=lambda s: s["_d"])
+        return [{"name": s["name"], "rating": s["rating"], "phase": s["phase"], "urn": s["urn"]}
+                for s in schools[:5]]
+    except Exception as exc:
+        print(f"  [school/osm] {exc}")
+        return []
+
+
+_OFSTED_LABELS = {"1": "Outstanding", "2": "Good", "3": "Requires improvement", "4": "Inadequate"}
+
+
+def _set_school_fields(prop: Property, parsed: list) -> None:
+    prop.nearby_schools = json.dumps(parsed)
+    best = next((s for s in parsed if s["rating"] == "Outstanding"),
+                next((s for s in parsed if s["rating"] == "Good"), parsed[0]))
+    prop.nearest_school = best["name"]
+    prop.school_rating = best["rating"]
 
 
 def _enrich_school(prop: Property) -> Property:
-    """Fetch up to 5 nearby schools within 2 miles via GIAS API (all Ofsted ratings).
+    """Fetch up to 5 nearby schools.
 
-    Stores a JSON list in prop.nearby_schools with name/rating/phase/urn per school.
-    Also sets legacy prop.nearest_school / prop.school_rating from the best-rated result.
+    Tries GIAS API first (has Ofsted ratings + URNs for direct report links).
+    Falls back to OpenStreetMap Overpass which is always reachable.
     """
+    lat, lng = _resolve_lat_lng(prop)
+
+    # ── Try GIAS (direct — Railway is in EU Amsterdam, no proxy needed) ───────
     postcode = prop.postcode
-    if not postcode:
-        if prop.lat and prop.lng:
-            postcode = _reverse_geocode(prop.lat, prop.lng)
-        if not postcode:
-            return prop
-    try:
-        clean = re.sub(r"\s+", "", postcode).upper()
-        r = _gias_get(
-            "https://api.get-information-about-schools.service.gov.uk/api/establishments",
-            {"nearestToPostCode": clean, "radiusInMiles": 2},
-        )
-        if r.status_code != 200:
-            return prop
-        raw = r.json()
-        if not isinstance(raw, list) or not raw:
-            print(f"  [school] unexpected response for {clean}: {type(raw)} {str(raw)[:120]}")
-            return prop
-
-        parsed = []
-        for s in raw[:10]:
-            name = s.get("EstablishmentName", "")
-            if not name:
-                continue
-
-            ofsted_raw = s.get("OfstedRating") or ""
-            if isinstance(ofsted_raw, dict):
-                rating_code = str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
+    if not postcode and lat:
+        postcode = _reverse_geocode(lat, lng)
+    if postcode:
+        try:
+            clean = re.sub(r"\s+", "", postcode).upper()
+            r = requests.get(
+                "https://api.get-information-about-schools.service.gov.uk/api/establishments",
+                params={"nearestToPostCode": clean, "radiusInMiles": 2},
+                timeout=10,
+            )
+            ct = r.headers.get("content-type", "")
+            if r.status_code == 200 and "json" in ct:
+                raw = r.json()
+                if isinstance(raw, list) and raw:
+                    parsed = []
+                    for s in raw[:10]:
+                        name = s.get("EstablishmentName", "")
+                        if not name:
+                            continue
+                        ofsted_raw = s.get("OfstedRating") or ""
+                        rc = (str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
+                              if isinstance(ofsted_raw, dict) else str(ofsted_raw))
+                        rating = _OFSTED_LABELS.get(rc, "Not rated")
+                        phase_raw = s.get("PhaseOfEducation") or {}
+                        ps = (phase_raw.get("displayName", "") or phase_raw.get("value", "")
+                              if isinstance(phase_raw, dict) else str(phase_raw))
+                        pl = ps.lower()
+                        phase = ("Primary" if any(w in pl for w in ("primary", "infant", "junior"))
+                                 else "Secondary" if any(w in pl for w in ("secondary", "through"))
+                                 else ps or "Other")
+                        urn = str(s.get("URN", "") or "")
+                        parsed.append({"name": name, "rating": rating, "phase": phase, "urn": urn})
+                        if len(parsed) >= 5:
+                            break
+                    if parsed:
+                        _set_school_fields(prop, parsed)
+                        return prop
+                else:
+                    print(f"  [school/gias] {clean}: non-list response — {str(raw)[:100]}")
             else:
-                rating_code = str(ofsted_raw)
-            rating = _OFSTED_LABELS.get(rating_code, "Not rated")
+                print(f"  [school/gias] {clean}: HTTP {r.status_code} ct={ct[:40]}")
+        except Exception as exc:
+            print(f"  [school/gias] {postcode}: {exc}")
 
-            phase_raw = s.get("PhaseOfEducation") or {}
-            if isinstance(phase_raw, dict):
-                phase_str = phase_raw.get("displayName", "") or phase_raw.get("value", "")
-            else:
-                phase_str = str(phase_raw)
-            phase_lower = phase_str.lower()
-            if "primary" in phase_lower or "infant" in phase_lower or "junior" in phase_lower:
-                phase = "Primary"
-            elif "secondary" in phase_lower or "all-through" in phase_lower or "through" in phase_lower:
-                phase = "Secondary"
-            else:
-                phase = phase_str or "Other"
-
-            urn = str(s.get("URN", "") or "")
-            parsed.append({"name": name, "rating": rating, "phase": phase, "urn": urn})
-            if len(parsed) >= 5:
-                break
-
-        if not parsed:
-            return prop
-
-        prop.nearby_schools = json.dumps(parsed)
-
-        # Set legacy fields from the best-rated school
-        best = next(
-            (s for s in parsed if s["rating"] == "Outstanding"),
-            next((s for s in parsed if s["rating"] == "Good"), parsed[0]),
-        )
-        prop.nearest_school = best["name"]
-        prop.school_rating = best["rating"]
-    except Exception as exc:
-        print(f"  [school] {prop.postcode or 'no-postcode'}: {exc}")
+    # ── Fallback: OpenStreetMap (always reachable) ─────────────────────────────
+    if lat and lng:
+        parsed = _schools_via_osm(lat, lng)
+        if parsed:
+            _set_school_fields(prop, parsed)
     return prop
 
 
@@ -247,14 +274,6 @@ def _enrich_commute(prop: Property) -> Property:
     if minutes:
         prop.commute_minutes = minutes
     return prop
-
-
-def _haversine_miles(lat1, lng1, lat2, lng2) -> float:
-    R = 3958.8  # Earth radius in miles
-    d_lat = math.radians(lat2 - lat1)
-    d_lng = math.radians(lng2 - lng1)
-    a = math.sin(d_lat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lng / 2) ** 2
-    return R * 2 * math.asin(math.sqrt(a))
 
 
 def _enrich_station(prop: Property) -> Property:
