@@ -269,6 +269,7 @@ def get_web_properties(
     property_type: str = "",
     keyword: str = "",
     favourites_only: bool = False,
+    outstanding_school: bool = False,
     sort: str = "newest",
     limit: int = 300,
 ) -> list:
@@ -300,6 +301,8 @@ def get_web_properties(
         conditions.append("(p.address LIKE ? OR p.title LIKE ?)")
         params.append(f"%{keyword}%")
         params.append(f"%{keyword}%")
+    if outstanding_school:
+        conditions.append("p.school_rating = 'Outstanding'")
 
     where = "WHERE " + " AND ".join(conditions)
 

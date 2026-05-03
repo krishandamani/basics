@@ -79,9 +79,17 @@
       {% endfor %}
     </div>
 
+    <!-- Outstanding school toggle chip -->
+    <a href="{{ url_with(outstanding_school='' if filters.outstanding_school else '1') }}"
+       class="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-xl border shadow-sm transition-colors
+              {{ 'bg-amber-500 text-white border-amber-500' if filters.outstanding_school else 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50' }}">
+      🎓 Outstanding
+    </a>
+
     <!-- Property type select — preserves all current URL params via hidden inputs -->
     <form method="get" action="/" id="filter-form" class="contents">
       {% if filters.new_only %}<input type="hidden" name="new_only" value="1">{% endif %}
+      {% if filters.outstanding_school %}<input type="hidden" name="outstanding_school" value="1">{% endif %}
       <input type="hidden" name="listing_type" value="{{ filters.listing_type }}">
       <input type="hidden" name="min_beds"     value="{{ filters.min_beds }}">
       <input type="hidden" name="sort"         value="{{ filters.sort }}">

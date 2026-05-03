@@ -1,5 +1,7 @@
 """Property quality scoring — shared between web UI and email alerts."""
 
+import json as _json
+
 
 def score_property(prop) -> tuple[int, list]:
     """Score a property 0-100 based on enrichment signals.
@@ -16,6 +18,18 @@ def score_property(prop) -> tuple[int, list]:
     reasons = []
 
     school = _get("school_rating") or ""
+    if not school:
+        # Fallback: scan nearby_schools JSON in case school_rating wasn't populated
+        try:
+            raw = _get("nearby_schools")
+            if raw:
+                for s in _json.loads(raw):
+                    r = s.get("rating", "")
+                    if r in ("Outstanding", "Good"):
+                        school = r
+                        break
+        except Exception:
+            pass
     if school == "Outstanding":
         score += 30; reasons.append("🎓 Outstanding school")
     elif school == "Good":

@@ -268,18 +268,20 @@ def index():
     keyword          = request.args.get("keyword", "").strip()
     sort             = request.args.get("sort", "newest")
     new_only         = bool(request.args.get("new_only"))
+    outstanding_school = bool(request.args.get("outstanding_school"))
 
     nl = _parse_nl(q) if q else {}
 
     all_props = _enrich_is_new(get_web_properties(
-        listing_type  = nl.get("listing_type") or listing_type,
-        min_price     = nl.get("min_price")    or _parse_int(min_price_raw),
-        max_price     = nl.get("max_price")    or _parse_int(max_price_raw),
-        min_bedrooms  = nl.get("min_bedrooms") or _parse_int(min_beds_raw),
-        source        = source,
-        property_type = property_type,
-        keyword       = keyword,
-        sort          = sort,
+        listing_type      = nl.get("listing_type") or listing_type,
+        min_price         = nl.get("min_price")    or _parse_int(min_price_raw),
+        max_price         = nl.get("max_price")    or _parse_int(max_price_raw),
+        min_bedrooms      = nl.get("min_bedrooms") or _parse_int(min_beds_raw),
+        source            = source,
+        property_type     = property_type,
+        keyword           = keyword,
+        outstanding_school = outstanding_school,
+        sort              = sort,
     ))
 
     new_count = sum(1 for p in all_props if p["is_new"])
@@ -287,7 +289,7 @@ def index():
 
     active_filter_count = sum(bool(x) for x in [
         listing_type, min_price_raw, max_price_raw, min_beds_raw, source, q,
-        property_type, keyword,
+        property_type, keyword, outstanding_school,
     ])
 
     # Used in templates to build tab URLs that preserve current filters
@@ -302,6 +304,7 @@ def index():
             "min_beds": min_beds_raw, "source": source,
             "property_type": property_type, "keyword": keyword,
             "sort": sort, "new_only": new_only,
+            "outstanding_school": outstanding_school,
         },
         search_state        = _search_state_for_template(),
         nl_active           = bool(q),
