@@ -1,2 +1,2 @@
-[phases.install]
-cmds = ["playwright install chromium --with-deps"]
+# Playwright (Chromium) is only used locally — Railway uses Apify proxy mode.
+# Removing the install cuts ~5 min off build time and prevents timeout failures.
