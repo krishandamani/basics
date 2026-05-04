@@ -157,56 +157,75 @@ def _set_school_fields(prop: Property, parsed: list) -> None:
 def _enrich_school(prop: Property) -> Property:
     """Fetch up to 5 nearby schools.
 
-    Tries GIAS API first (has Ofsted ratings + URNs for direct report links).
-    Falls back to OpenStreetMap Overpass which is always reachable.
+    Tries GIAS API first (Ofsted ratings + URNs). Falls back to OpenStreetMap.
     """
     lat, lng = _resolve_lat_lng(prop)
-
-    # ── Try GIAS (direct — Railway is in EU Amsterdam, no proxy needed) ───────
     postcode = prop.postcode
     if not postcode and lat:
         postcode = _reverse_geocode(lat, lng)
+
+    # ── Try GIAS ──────────────────────────────────────────────────────────────
+    _gias_url = "https://api.get-information-about-schools.service.gov.uk/api/establishments"
+
+    def _gias_fetch(params):
+        r = requests.get(_gias_url, params=params,
+                         headers={"Accept": "application/json"}, timeout=12)
+        if r.status_code != 200:
+            print(f"  [school/gias] HTTP {r.status_code} params={params}")
+            return None
+        try:
+            data = r.json()
+        except Exception:
+            print(f"  [school/gias] non-JSON: {r.text[:80]}")
+            return None
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for k in ("Establishments", "establishments", "data", "results", "items"):
+                if isinstance(data.get(k), list):
+                    return data[k]
+            print(f"  [school/gias] unknown dict keys: {list(data.keys())[:5]}")
+        return None
+
+    raw = None
     if postcode:
         try:
             clean = re.sub(r"\s+", "", postcode).upper()
-            r = requests.get(
-                "https://api.get-information-about-schools.service.gov.uk/api/establishments",
-                params={"nearestToPostCode": clean, "radiusInMiles": 2},
-                timeout=10,
-            )
-            ct = r.headers.get("content-type", "")
-            if r.status_code == 200 and "json" in ct:
-                raw = r.json()
-                if isinstance(raw, list) and raw:
-                    parsed = []
-                    for s in raw[:10]:
-                        name = s.get("EstablishmentName", "")
-                        if not name:
-                            continue
-                        ofsted_raw = s.get("OfstedRating") or ""
-                        rc = (str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
-                              if isinstance(ofsted_raw, dict) else str(ofsted_raw))
-                        rating = _OFSTED_LABELS.get(rc, "Not rated")
-                        phase_raw = s.get("PhaseOfEducation") or {}
-                        ps = (phase_raw.get("displayName", "") or phase_raw.get("value", "")
-                              if isinstance(phase_raw, dict) else str(phase_raw))
-                        pl = ps.lower()
-                        phase = ("Primary" if any(w in pl for w in ("primary", "infant", "junior"))
-                                 else "Secondary" if any(w in pl for w in ("secondary", "through"))
-                                 else ps or "Other")
-                        urn = str(s.get("URN", "") or "")
-                        parsed.append({"name": name, "rating": rating, "phase": phase, "urn": urn})
-                        if len(parsed) >= 5:
-                            break
-                    if parsed:
-                        _set_school_fields(prop, parsed)
-                        return prop
-                else:
-                    print(f"  [school/gias] {clean}: non-list response — {str(raw)[:100]}")
-            else:
-                print(f"  [school/gias] {clean}: HTTP {r.status_code} ct={ct[:40]}")
+            raw = _gias_fetch({"nearestToPostCode": clean, "radiusInMiles": 2})
+            if not raw and lat and lng:
+                raw = _gias_fetch({"nearestToLatLong": f"{lat},{lng}", "radiusInMiles": 2})
         except Exception as exc:
             print(f"  [school/gias] {postcode}: {exc}")
+    elif lat and lng:
+        try:
+            raw = _gias_fetch({"nearestToLatLong": f"{lat},{lng}", "radiusInMiles": 2})
+        except Exception as exc:
+            print(f"  [school/gias] latLng: {exc}")
+
+    if raw:
+        parsed = []
+        for s in raw[:10]:
+            name = s.get("EstablishmentName", "")
+            if not name:
+                continue
+            ofsted_raw = s.get("OfstedRating") or ""
+            rc = (str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
+                  if isinstance(ofsted_raw, dict) else str(ofsted_raw))
+            rating = _OFSTED_LABELS.get(rc, "Not rated")
+            phase_raw = s.get("PhaseOfEducation") or {}
+            ps = (phase_raw.get("displayName", "") or phase_raw.get("value", "")
+                  if isinstance(phase_raw, dict) else str(phase_raw))
+            pl = ps.lower()
+            phase = ("Primary" if any(w in pl for w in ("primary", "infant", "junior"))
+                     else "Secondary" if any(w in pl for w in ("secondary", "through"))
+                     else ps or "Other")
+            parsed.append({"name": name, "rating": rating, "phase": phase,
+                           "urn": str(s.get("URN", "") or "")})
+            if len(parsed) >= 5:
+                break
+        if parsed:
+            _set_school_fields(prop, parsed)
+            return prop
 
     # ── Fallback: OpenStreetMap (always reachable) ─────────────────────────────
     if lat and lng:

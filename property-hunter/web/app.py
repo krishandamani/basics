@@ -516,23 +516,29 @@ def api_school_backfill_status():
 
 @app.route("/api/test-gias")
 def api_test_gias():
-    """Test GIAS school API against a known postcode. Returns raw first result for debugging."""
+    """Test GIAS school API — returns full raw response for debugging."""
     import requests as _req
     postcode = request.args.get("postcode", "SG50DT")
+    url = "https://api.get-information-about-schools.service.gov.uk/api/establishments"
     try:
-        r = _req.get(
-            "https://api.get-information-about-schools.service.gov.uk/api/establishments",
-            params={"nearestToPostCode": postcode, "radiusInMiles": 2},
-            timeout=10,
-        )
-        raw = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
+        r = _req.get(url, params={"nearestToPostCode": postcode, "radiusInMiles": 2},
+                     headers={"Accept": "application/json"}, timeout=12)
+        ct = r.headers.get("content-type", "")
+        try:
+            raw = r.json()
+        except Exception:
+            raw = None
         return jsonify({
             "status_code": r.status_code,
-            "count": len(raw) if isinstance(raw, list) else None,
+            "content_type": ct,
+            "response_type": type(raw).__name__,
+            "count": len(raw) if isinstance(raw, list) else (len(raw) if isinstance(raw, dict) else None),
+            "keys": list(raw.keys()) if isinstance(raw, dict) else None,
             "first": raw[0] if isinstance(raw, list) and raw else raw,
+            "raw_text_preview": r.text[:300] if raw is None else None,
         })
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": str(exc), "url": url, "postcode": postcode}), 500
 
 
 @app.route("/api/toggle-favourite/<prop_id>", methods=["POST"])
