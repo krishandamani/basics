@@ -6,12 +6,21 @@ public UK APIs. Each enrichment is independent; failures are silent.
 import json
 import math
 import re
+from pathlib import Path
 from typing import Optional
 import requests
 
 from .models import Property
 
 _TIMEOUT = 8  # seconds per API call
+
+# Static Ofsted ratings bundled at build time (populated by scripts/fetch_ofsted_data.py).
+# Maps postcode district → [{name, rating, phase, urn, postcode}, ...]
+_OFSTED_DATA_FILE = Path(__file__).parent / "ofsted_by_district.json"
+try:
+    _OFSTED_BY_DISTRICT: dict = json.loads(_OFSTED_DATA_FILE.read_text())
+except Exception:
+    _OFSTED_BY_DISTRICT = {}
 
 
 def _get_lat_lng(postcode: str):
@@ -95,12 +104,28 @@ def _haversine_miles(lat1, lng1, lat2, lng2) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def _schools_via_osm(lat: float, lng: float) -> list:
-    """Find nearby schools via OpenStreetMap Overpass API (reliable — same as station lookup).
+def _ofsted_rating_for(name: str, district: str) -> tuple:
+    """Look up Ofsted rating + URN from the bundled static data by school name."""
+    candidates = _OFSTED_BY_DISTRICT.get(district, [])
+    name_l = name.lower()
+    for s in candidates:
+        if s["name"].lower() == name_l:
+            return s["rating"], s["urn"]
+    # Fuzzy: check if one name contains the other (handles "St Mary's CE" vs "St Mary's Church of England")
+    for s in candidates:
+        sn = s["name"].lower()
+        if name_l in sn or sn in name_l:
+            return s["rating"], s["urn"]
+    return "Not rated", ""
 
-    Returns [{name, rating, phase, urn}, ...] sorted nearest-first.
-    Ofsted rating is 'Not rated' (OSM has no Ofsted data).
-    """
+
+def _postcode_district(postcode: str) -> str:
+    clean = re.sub(r"\s+", "", postcode).upper()
+    return clean[:-3] if len(clean) >= 5 else clean
+
+
+def _schools_via_osm(lat: float, lng: float, district: str = "") -> list:
+    """Find nearby schools via Overpass; augment ratings from bundled Ofsted data."""
     try:
         query = (
             f"[out:json][timeout:6];"
@@ -134,16 +159,14 @@ def _schools_via_osm(lat: float, lng: float) -> list:
                 phase = "Secondary"
             else:
                 phase = "Primary"
-            schools.append({"name": name, "rating": "Not rated", "phase": phase, "urn": "", "_d": dist})
+            rating, urn = _ofsted_rating_for(name, district) if district else ("Not rated", "")
+            schools.append({"name": name, "rating": rating, "phase": phase, "urn": urn, "_d": dist})
         schools.sort(key=lambda s: s["_d"])
         return [{"name": s["name"], "rating": s["rating"], "phase": s["phase"], "urn": s["urn"]}
                 for s in schools[:5]]
     except Exception as exc:
         print(f"  [school/osm] {exc}")
         return []
-
-
-_OFSTED_LABELS = {"1": "Outstanding", "2": "Good", "3": "Requires improvement", "4": "Inadequate"}
 
 
 def _set_school_fields(prop: Property, parsed: list) -> None:
@@ -155,83 +178,30 @@ def _set_school_fields(prop: Property, parsed: list) -> None:
 
 
 def _enrich_school(prop: Property) -> Property:
-    """Fetch up to 5 nearby schools.
-
-    Tries GIAS API first (Ofsted ratings + URNs). Falls back to OpenStreetMap.
-    """
+    """Find nearby schools via OSM; augment Ofsted ratings from bundled static data."""
     lat, lng = _resolve_lat_lng(prop)
+    if not lat:
+        return prop
+
     postcode = prop.postcode
-    if not postcode and lat:
+    if not postcode:
         postcode = _reverse_geocode(lat, lng)
+        if postcode:
+            prop.postcode = postcode
 
-    # ── Try GIAS ──────────────────────────────────────────────────────────────
-    _gias_url = "https://api.get-information-about-schools.service.gov.uk/api/establishments"
+    district = _postcode_district(postcode) if postcode else ""
 
-    def _gias_fetch(params):
-        r = requests.get(_gias_url, params=params,
-                         headers={"Accept": "application/json"}, timeout=12)
-        if r.status_code != 200:
-            print(f"  [school/gias] HTTP {r.status_code} params={params}")
-            return None
-        try:
-            data = r.json()
-        except Exception:
-            print(f"  [school/gias] non-JSON: {r.text[:80]}")
-            return None
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for k in ("Establishments", "establishments", "data", "results", "items"):
-                if isinstance(data.get(k), list):
-                    return data[k]
-            print(f"  [school/gias] unknown dict keys: {list(data.keys())[:5]}")
-        return None
-
-    raw = None
-    if postcode:
-        try:
-            clean = re.sub(r"\s+", "", postcode).upper()
-            raw = _gias_fetch({"nearestToPostCode": clean, "radiusInMiles": 2})
-            if not raw and lat and lng:
-                raw = _gias_fetch({"nearestToLatLong": f"{lat},{lng}", "radiusInMiles": 2})
-        except Exception as exc:
-            print(f"  [school/gias] {postcode}: {exc}")
-    elif lat and lng:
-        try:
-            raw = _gias_fetch({"nearestToLatLong": f"{lat},{lng}", "radiusInMiles": 2})
-        except Exception as exc:
-            print(f"  [school/gias] latLng: {exc}")
-
-    if raw:
-        parsed = []
-        for s in raw[:10]:
-            name = s.get("EstablishmentName", "")
-            if not name:
-                continue
-            ofsted_raw = s.get("OfstedRating") or ""
-            rc = (str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
-                  if isinstance(ofsted_raw, dict) else str(ofsted_raw))
-            rating = _OFSTED_LABELS.get(rc, "Not rated")
-            phase_raw = s.get("PhaseOfEducation") or {}
-            ps = (phase_raw.get("displayName", "") or phase_raw.get("value", "")
-                  if isinstance(phase_raw, dict) else str(phase_raw))
-            pl = ps.lower()
-            phase = ("Primary" if any(w in pl for w in ("primary", "infant", "junior"))
-                     else "Secondary" if any(w in pl for w in ("secondary", "through"))
-                     else ps or "Other")
-            parsed.append({"name": name, "rating": rating, "phase": phase,
-                           "urn": str(s.get("URN", "") or "")})
-            if len(parsed) >= 5:
-                break
-        if parsed:
-            _set_school_fields(prop, parsed)
+    # ── Try static Ofsted data for this district first ─────────────────────────
+    if district and district in _OFSTED_BY_DISTRICT:
+        static = _OFSTED_BY_DISTRICT[district]
+        if static:
+            _set_school_fields(prop, static[:5])
             return prop
 
-    # ── Fallback: OpenStreetMap (always reachable) ─────────────────────────────
-    if lat and lng:
-        parsed = _schools_via_osm(lat, lng)
-        if parsed:
-            _set_school_fields(prop, parsed)
+    # ── Discover schools via OSM, augment ratings from static data ─────────────
+    parsed = _schools_via_osm(lat, lng, district)
+    if parsed:
+        _set_school_fields(prop, parsed)
     return prop
 
 
