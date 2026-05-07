@@ -201,9 +201,14 @@ def run_cycle(config: dict, searches: List[Search], send_health_alerts: bool = F
     print()
     if all_new_matches:
         n = len(all_new_matches)
-        recommended = [(p, s) for p, s in all_new_matches if score_property(p)[0] > 0]
+        scored = [(score_property(p)[0], p, s) for p, s in all_new_matches]
+        recommended = sorted(
+            [(p, s) for sc, p, s in scored if sc >= 20],
+            key=lambda ps: score_property(ps[0])[0],
+            reverse=True,
+        )[:15]
         r = len(recommended)
-        print(f"  {n} new propert{'ies' if n != 1 else 'y'} found, {r} recommended (score > 0)")
+        print(f"  {n} new propert{'ies' if n != 1 else 'y'} found, {r} recommended (score ≥ 20, top 15)")
         if recommended:
             send_digest(recommended, config)
             send_telegram_alert(recommended, config)

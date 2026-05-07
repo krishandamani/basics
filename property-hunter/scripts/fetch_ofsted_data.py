@@ -13,6 +13,7 @@ Refresh every few months to pick up new Ofsted inspections.
 """
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -49,13 +50,23 @@ _GIAS_URL = "https://api.get-information-about-schools.service.gov.uk/api/establ
 OUT_FILE = Path(__file__).parent.parent / "src" / "ofsted_by_district.json"
 
 
+def _proxies():
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if not api_key:
+        return None
+    proxy_url = f"http://groups-RESIDENTIAL:{api_key}@proxy.apify.com:8000"
+    return {"http": proxy_url, "https": proxy_url}
+
+
 def fetch_district(district: str) -> list:
+    proxies = _proxies()
     try:
         r = requests.get(
             _GIAS_URL,
             params={"nearestToPostCode": district, "radiusInMiles": 2},
             headers={"Accept": "application/json"},
-            timeout=15,
+            proxies=proxies,
+            timeout=20,
         )
         if r.status_code != 200:
             print(f"  {district}: HTTP {r.status_code}")

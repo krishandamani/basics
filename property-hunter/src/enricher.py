@@ -5,6 +5,7 @@ public UK APIs. Each enrichment is independent; failures are silent.
 
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,40 @@ try:
     _OFSTED_BY_DISTRICT: dict = json.loads(_OFSTED_DATA_FILE.read_text())
 except Exception:
     _OFSTED_BY_DISTRICT = {}
+
+_OFSTED_LABELS = {"1": "Outstanding", "2": "Good", "3": "Requires improvement", "4": "Inadequate"}
+
+
+def _apify_proxies() -> Optional[dict]:
+    """Return requests proxy dict via Apify datacenter proxy, or None if no key."""
+    api_key = os.environ.get("APIFY_API_KEY", "")
+    if not api_key:
+        return None
+    proxy_url = f"http://groups-RESIDENTIAL:{api_key}@proxy.apify.com:8000"
+    return {"http": proxy_url, "https": proxy_url}
+
+
+def _gias_fetch_via_proxy(params: dict) -> Optional[list]:
+    """Fetch GIAS school data via Apify proxy (bypasses Railway's .gov.uk DNS block)."""
+    proxies = _apify_proxies()
+    if not proxies:
+        return None
+    url = "https://api.get-information-about-schools.service.gov.uk/api/establishments"
+    try:
+        r = requests.get(url, params=params, headers={"Accept": "application/json"},
+                         proxies=proxies, timeout=20)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for k in ("Establishments", "establishments", "data", "results", "items"):
+                if isinstance(data.get(k), list):
+                    return data[k]
+    except Exception:
+        pass
+    return None
 
 
 def _get_lat_lng(postcode: str):
@@ -178,7 +213,13 @@ def _set_school_fields(prop: Property, parsed: list) -> None:
 
 
 def _enrich_school(prop: Property) -> Property:
-    """Find nearby schools via OSM; augment Ofsted ratings from bundled static data."""
+    """Find nearby schools with Ofsted ratings.
+
+    Order of preference:
+    1. GIAS API via Apify proxy (live data, full Ofsted ratings)
+    2. Bundled static Ofsted data (run scripts/fetch_ofsted_data.py to populate)
+    3. OSM school names with ratings from static data where name matches
+    """
     lat, lng = _resolve_lat_lng(prop)
     if not lat:
         return prop
@@ -191,14 +232,47 @@ def _enrich_school(prop: Property) -> Property:
 
     district = _postcode_district(postcode) if postcode else ""
 
-    # ── Try static Ofsted data for this district first ─────────────────────────
+    # ── 1. Try GIAS via Apify proxy ────────────────────────────────────────────
+    raw = None
+    if postcode:
+        clean = re.sub(r"\s+", "", postcode).upper()
+        raw = _gias_fetch_via_proxy({"nearestToPostCode": clean, "radiusInMiles": 2})
+    if not raw and lat and lng:
+        raw = _gias_fetch_via_proxy({"nearestToLatLong": f"{lat},{lng}", "radiusInMiles": 2})
+
+    if raw:
+        parsed = []
+        for s in raw[:10]:
+            name = s.get("EstablishmentName", "")
+            if not name:
+                continue
+            ofsted_raw = s.get("OfstedRating") or ""
+            rc = (str(ofsted_raw.get("code", "") or ofsted_raw.get("value", ""))
+                  if isinstance(ofsted_raw, dict) else str(ofsted_raw))
+            rating = _OFSTED_LABELS.get(rc, "Not rated")
+            phase_raw = s.get("PhaseOfEducation") or {}
+            ps = (phase_raw.get("displayName", "") or phase_raw.get("value", "")
+                  if isinstance(phase_raw, dict) else str(phase_raw))
+            pl = ps.lower()
+            phase = ("Primary" if any(w in pl for w in ("primary", "infant", "junior"))
+                     else "Secondary" if any(w in pl for w in ("secondary", "through"))
+                     else ps or "Other")
+            parsed.append({"name": name, "rating": rating, "phase": phase,
+                           "urn": str(s.get("URN", "") or "")})
+            if len(parsed) >= 5:
+                break
+        if parsed:
+            _set_school_fields(prop, parsed)
+            return prop
+
+    # ── 2. Bundled static Ofsted data ──────────────────────────────────────────
     if district and district in _OFSTED_BY_DISTRICT:
         static = _OFSTED_BY_DISTRICT[district]
         if static:
             _set_school_fields(prop, static[:5])
             return prop
 
-    # ── Discover schools via OSM, augment ratings from static data ─────────────
+    # ── 3. OSM school names, augmented with static ratings where name matches ──
     parsed = _schools_via_osm(lat, lng, district)
     if parsed:
         _set_school_fields(prop, parsed)
