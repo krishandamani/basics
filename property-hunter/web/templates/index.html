@@ -83,6 +83,7 @@
     <form method="get" action="/" id="filter-form" class="contents">
       {% if filters.new_only %}<input type="hidden" name="new_only" value="1">{% endif %}
       {% if filters.outstanding_school %}<input type="hidden" name="outstanding_school" value="1">{% endif %}
+      {% if filters.has_catchment %}<input type="hidden" name="has_catchment" value="1">{% endif %}
       <input type="hidden" name="listing_type" value="{{ filters.listing_type }}">
       <input type="hidden" name="min_beds"     value="{{ filters.min_beds }}">
       <input type="hidden" name="sort"         value="{{ filters.sort }}">
@@ -121,6 +122,11 @@
        class="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-xl border shadow-sm transition-colors
               {{ 'bg-amber-500 text-white border-amber-500' if filters.outstanding_school else 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50' }}">
       🎓 Outstanding school
+    </a>
+    <a href="{{ url_with(has_catchment='' if filters.has_catchment else '1') }}"
+       class="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-xl border shadow-sm transition-colors
+              {{ 'bg-emerald-600 text-white border-emerald-600' if filters.has_catchment else 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50' }}">
+      ✅ In catchment
     </a>
   </div>
 
@@ -368,6 +374,24 @@
         {% endif %}
       </div>
 
+      <!-- Catchment confirmation -->
+      {% if p.catchment_schools_list %}
+      <div class="mt-2 pt-2 border-t border-emerald-100 bg-emerald-50 -mx-4 px-4 pb-2 text-xs">
+        <p class="font-semibold text-emerald-800 mb-1">✅ In catchment for:</p>
+        {% for s in p.catchment_schools_list %}
+        <div class="flex items-center gap-1 text-emerald-700">
+          <span class="font-medium">{{ s.name[:35] }}</span>
+          <span class="text-emerald-500">({{ s.phase }})</span>
+          {% if s.urn %}
+          <a href="https://reports.ofsted.gov.uk/provider/view/{{ s.urn }}"
+             target="_blank" rel="noopener"
+             class="text-indigo-500 hover:underline ml-auto shrink-0">Ofsted →</a>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
       <!-- Schools detail -->
       {% if p.nearby_schools_primary or p.nearby_schools_secondary %}
       <div class="mt-2 pt-2 border-t border-slate-100 text-xs leading-relaxed">
@@ -390,7 +414,7 @@
         </div>
         {% endif %}
         {% endfor %}
-        {% if p.council_schools_url %}
+        {% if p.council_schools_url and not p.catchment_schools_list %}
         <a href="{{ p.council_schools_url }}" target="_blank" rel="noopener"
            class="inline-flex items-center gap-1 text-indigo-600 hover:underline font-medium mt-0.5">
           🗺 Check catchment →

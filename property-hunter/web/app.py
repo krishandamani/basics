@@ -300,6 +300,16 @@ def _enrich_is_new(props) -> list:
             d["nearby_schools_secondary"] = []
 
         d["council_schools_url"] = _council_schools_url(d.get("postcode") or "")
+
+        raw_catchment = d.get("catchment_schools")
+        if raw_catchment:
+            try:
+                d["catchment_schools_list"] = json.loads(raw_catchment)
+            except Exception:
+                d["catchment_schools_list"] = []
+        else:
+            d["catchment_schools_list"] = []
+
         out.append(d)
     return out
 
@@ -326,6 +336,7 @@ def index():
     sort             = request.args.get("sort", "newest")
     new_only         = bool(request.args.get("new_only"))
     outstanding_school = bool(request.args.get("outstanding_school"))
+    has_catchment    = bool(request.args.get("has_catchment"))
 
     nl = _parse_nl(q) if q else {}
 
@@ -338,6 +349,7 @@ def index():
         property_type     = property_type,
         keyword           = keyword,
         outstanding_school = outstanding_school,
+        has_catchment     = has_catchment,
         sort              = sort,
     ))
 
@@ -346,7 +358,7 @@ def index():
 
     active_filter_count = sum(bool(x) for x in [
         listing_type, min_price_raw, max_price_raw, min_beds_raw, source, q,
-        property_type, keyword, outstanding_school,
+        property_type, keyword, outstanding_school, has_catchment,
     ])
 
     # Used in templates to build tab URLs that preserve current filters
@@ -362,6 +374,7 @@ def index():
             "property_type": property_type, "keyword": keyword,
             "sort": sort, "new_only": new_only,
             "outstanding_school": outstanding_school,
+            "has_catchment": has_catchment,
         },
         search_state        = _search_state_for_template(),
         nl_active           = bool(q),
@@ -610,6 +623,60 @@ def api_db_status():
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/test-catchment")
+def api_test_catchment():
+    """Test school catchment lookup for a postcode (or lat/lng).
+
+    Usage: /api/test-catchment?postcode=AL10+9AB
+           /api/test-catchment?lat=51.75&lng=-0.23
+    """
+    from src.catchment import lookup_catchment, council_admissions_url, council_name, _postcode_to_council_key, _discover_arcgis_catchment_layer, _COUNCILS
+    import requests as _req
+
+    postcode = request.args.get("postcode", "").strip()
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat = lng = 0.0
+
+    if postcode and not (lat and lng):
+        try:
+            r = _req.get(f"https://api.postcodes.io/postcodes/{postcode.replace(' ', '')}", timeout=6)
+            if r.status_code == 200:
+                res = r.json().get("result", {})
+                lat = res.get("latitude", 0)
+                lng = res.get("longitude", 0)
+        except Exception:
+            pass
+
+    council_key = _postcode_to_council_key(postcode) if postcode else None
+    council = _COUNCILS.get(council_key, {}) if council_key else {}
+
+    # Attempt layer discovery if this is an arcgis council
+    discovered_layer = None
+    if council.get("method") == "arcgis" and council.get("arcgis_base"):
+        discovered_layer = _discover_arcgis_catchment_layer(council["arcgis_base"])
+
+    catchment = []
+    if lat and lng:
+        catchment = lookup_catchment(lat, lng, postcode)
+
+    return jsonify({
+        "postcode": postcode,
+        "lat": lat,
+        "lng": lng,
+        "council_key": council_key,
+        "council_name": council_name(postcode) if postcode else None,
+        "council_method": council.get("method"),
+        "arcgis_base": council.get("arcgis_base"),
+        "discovered_layer": discovered_layer,
+        "admissions_url": council_admissions_url(postcode) if postcode else None,
+        "catchment_schools": catchment,
+        "count": len(catchment),
+    })
 
 
 @app.route("/api/test-zoopla")

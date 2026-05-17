@@ -376,11 +376,32 @@ def _enrich_station(prop: Property) -> Property:
     return prop
 
 
+def _enrich_catchment(prop: Property) -> Property:
+    """Determine which school catchment areas this property falls inside."""
+    lat, lng = _resolve_lat_lng(prop)
+    if not lat:
+        return prop
+    postcode = prop.postcode
+    if not postcode:
+        postcode = _reverse_geocode(lat, lng)
+        if postcode:
+            prop.postcode = postcode
+    try:
+        from .catchment import lookup_catchment
+        schools = lookup_catchment(lat, lng, postcode or "")
+        if schools:
+            prop.catchment_schools = json.dumps(schools)
+    except Exception:
+        pass
+    return prop
+
+
 def enrich(prop: Property) -> Property:
     """Run all enrichments. Safe to call even if no postcode is available."""
     prop = _enrich_crime(prop)
     prop = _enrich_epc(prop)
     prop = _enrich_school(prop)
+    prop = _enrich_catchment(prop)
     prop = _enrich_commute(prop)
     prop = _enrich_station(prop)
     return prop

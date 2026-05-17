@@ -31,6 +31,7 @@ class Property:
     lat: Optional[float] = None           # from scraper (more reliable than postcode geocoding)
     lng: Optional[float] = None
     nearby_schools: Optional[str] = None  # JSON: [{name, rating, phase, urn}, ...]
+    catchment_schools: Optional[str] = None  # JSON: [{name, phase, urn, in_catchment, council, source}, ...]
     first_seen: datetime = field(default_factory=datetime.now)
 
 

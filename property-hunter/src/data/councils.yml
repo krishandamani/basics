@@ -1,0 +1,34 @@
+councils:
+
+  hertfordshire:
+    name: Hertfordshire County Council
+    method: arcgis
+    arcgis_base: https://mapping.hertfordshire.gov.uk/arcgis/rest/services
+    admissions_url: https://www.hertfordshire.gov.uk/services/schools-and-education/school-admissions/
+    catchment_map_url: https://apps.hertfordshire.gov.uk/apps/catchmentareamap/
+
+  buckinghamshire:
+    name: Buckinghamshire Council
+    method: link
+    admissions_url: https://www.buckinghamshire.gov.uk/schools-and-learning/schools-and-admissions/find-a-school/
+    note: "Grammar county — 11-plus based selection, not standard geographic catchments"
+
+  barnet:
+    name: London Borough of Barnet
+    method: link
+    admissions_url: https://www.barnet.gov.uk/schools-and-education/school-admissions/find-school
+
+  enfield:
+    name: London Borough of Enfield
+    method: link
+    admissions_url: https://new.enfield.gov.uk/services/schools-and-education/school-admissions/
+
+  harrow:
+    name: London Borough of Harrow
+    method: link
+    admissions_url: https://www.harrow.gov.uk/schools-learning/school-admissions/2
+
+  hillingdon:
+    name: London Borough of Hillingdon
+    method: link
+    admissions_url: https://www.hillingdon.gov.uk/article/2534/Find-a-school
